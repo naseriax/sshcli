@@ -107,6 +107,12 @@ func main() {
 	promptCommand := promptui.Select{
 		Label: "Select Command",
 		Items: []string{"ssh", "sftp"},
+		Templates: &promptui.SelectTemplates{
+			Label:    "{{ . }}?",
+			Active:   "\U0001F534 {{ . | cyan }} (press enter to select)",
+			Inactive: "  {{ . | cyan }}",
+			Selected: "\U0001F7E2 {{ . | red | cyan }}",
+		},
 	}
 
 	_, command, err := promptCommand.Run()
