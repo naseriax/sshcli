@@ -2,12 +2,12 @@
 
 ## Small cli tool to select ssh/sftp profiles from ~/.ssh/config file using keyboard arrow keys and connect
 
-## How to run:
-# Requirement:
+# How to run:
+## Requirement:
 ```
-Golang must be installed on the system.
+Golang must be installed on the system where you want to compile the code.
 ```
-# Steps:
+## Steps:
 ```
 1: clone the repository.
 2: run "go mod tidy" to download the extra modules.
