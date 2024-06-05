@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -13,6 +14,8 @@ import (
 	"github.com/manifoldco/promptui"
 )
 
+var CompileTime = ""
+
 type Host struct {
 	Name     string
 	HostName string
@@ -20,6 +23,13 @@ type Host struct {
 }
 
 func main() {
+
+	version := flag.Bool("V", false, "prints the compile time")
+	flag.Parse()
+
+	if *version {
+		fmt.Println("Compile time:", CompileTime)
+	}
 
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -96,7 +106,6 @@ func main() {
 
 	fmt.Printf("You chose %q\n", chosen)
 
-	// Extract the host name from the chosen item
 	chosenParts := strings.Split(chosen, " ")
 	if len(chosenParts) < 1 {
 		fmt.Println("Invalid chosen item")
