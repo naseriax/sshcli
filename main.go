@@ -261,8 +261,6 @@ func main() {
 
 	sshConfigPath := getSSHConfigPath()
 
-	doConfigBackup(sshConfigPath)
-
 	profile, action := processCliArgs()
 
 	if *action != "" {
@@ -270,6 +268,7 @@ func main() {
 			fmt.Println("Usage: -action [add|remove] -host HOST [other flags...]")
 			return
 		} else {
+			doConfigBackup(sshConfigPath)
 			switch *action {
 			case "add":
 				if err := addOrUpdateProfile(profile); err != nil {
