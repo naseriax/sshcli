@@ -22,23 +22,143 @@ type Host struct {
 	User     string
 }
 
-func main() {
+type SSHConfigProfile struct {
+	Host         string
+	HostName     string
+	User         string
+	Port         string
+	IdentityFile string
+}
 
+func formatProfile(profile SSHConfigProfile) string {
+	config := fmt.Sprintf("Host %s\n", profile.Host)
+	if profile.HostName != "" {
+		config += fmt.Sprintf("  HostName %s\n", profile.HostName)
+	}
+	if profile.User != "" {
+		config += fmt.Sprintf("  User %s\n", profile.User)
+	}
+	if profile.Port != "" {
+		config += fmt.Sprintf("  Port %s\n", profile.Port)
+	}
+	if profile.IdentityFile != "" {
+		config += fmt.Sprintf("  IdentityFile %s\n", profile.IdentityFile)
+	}
+	return config
+}
+
+func removeProfile(host string) error {
+	configFilePath := getSSHConfigPath()
+
+	input, err := os.ReadFile(configFilePath)
+	if err != nil {
+		return err
+	}
+
+	lines := strings.Split(string(input), "\n")
+	var output []string
+	inBlock := false
+
+	for _, line := range lines {
+		if strings.HasPrefix(line, "Host ") {
+			if strings.TrimSpace(line) == fmt.Sprintf("Host %s", host) {
+				inBlock = true
+				continue
+			}
+			inBlock = false
+		}
+		if !inBlock {
+			output = append(output, line)
+		}
+	}
+
+	outputString := strings.Join(output, "\n")
+	if err := os.WriteFile(configFilePath, []byte(outputString), 0600); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func addOrUpdateProfile(profile SSHConfigProfile) error {
+	configFilePath := getSSHConfigPath()
+	input, err := os.ReadFile(configFilePath)
+	if err != nil {
+		return err
+	}
+
+	lines := strings.Split(string(input), "\n")
+	var output []string
+	inBlock := false
+	found := false
+
+	for _, line := range lines {
+		if strings.HasPrefix(line, "Host ") {
+			if inBlock {
+				// Close the block
+				output = append(output, formatProfile(profile))
+				inBlock = false
+				found = true
+			}
+			if strings.TrimSpace(line) == fmt.Sprintf("Host %s", profile.Host) {
+				inBlock = true
+				continue
+			}
+		}
+		if !inBlock {
+			output = append(output, line)
+		}
+	}
+	if !found {
+		output = append(output, formatProfile(profile))
+	}
+
+	outputString := strings.Join(output, "\n")
+	if err := os.WriteFile(configFilePath, []byte(outputString), 0600); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func getSSHConfigPath() string {
+	homeDir, _ := os.UserHomeDir()
+	return filepath.Join(homeDir, ".ssh", "config")
+}
+
+func processCliArgs() (SSHConfigProfile, *string) {
+	action := flag.String("action", "", "Action to perform: add or remove")
+	host := flag.String("host", "", "Host alias")
+	hostname := flag.String("hostname", "", "HostName")
+	user := flag.String("user", "", "User")
+	port := flag.String("port", "", "Port")
+	identityFile := flag.String("key", "", "IdentityFile path")
 	version := flag.Bool("V", false, "prints the compile time")
+
 	flag.Parse()
 
 	if *version {
 		fmt.Println("Compile time:", CompileTime)
 	}
 
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		fmt.Println("Error getting home directory:", err)
-		return
+	profile := SSHConfigProfile{
+		Host:         *host,
+		HostName:     *hostname,
+		User:         *user,
+		Port:         *port,
+		IdentityFile: *identityFile,
 	}
 
-	sshConfigPath := filepath.Join(homeDir, ".ssh", "config")
+	return profile, action
+}
 
+func doConfigBackup(sshConfigPath string) {
+	backupCmd := exec.Command(fmt.Sprintf("cp %s %s.backup", sshConfigPath, sshConfigPath))
+	backupCmd.Stderr = os.Stderr
+	backupCmd.Run()
+}
+
+func UIExec(sshConfigPath string) {
 	file, err := os.Open(sshConfigPath)
 	if err != nil {
 		log.Fatal(err)
@@ -135,4 +255,35 @@ func main() {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Run()
+}
+
+func main() {
+
+	sshConfigPath := getSSHConfigPath()
+
+	doConfigBackup(sshConfigPath)
+
+	profile, action := processCliArgs()
+
+	if *action != "" {
+		if profile.Host == "" {
+			fmt.Println("Usage: -action [add|remove] -host HOST [other flags...]")
+			return
+		} else {
+			switch *action {
+			case "add":
+				if err := addOrUpdateProfile(profile); err != nil {
+					fmt.Println("Error adding/updating profile:", err)
+				}
+			case "remove":
+				if err := removeProfile(profile.Host); err != nil {
+					fmt.Println("Error removing profile:", err)
+				}
+			default:
+				fmt.Println("Invalid action. Use 'add' or 'remove'.")
+			}
+		}
+	} else {
+		UIExec(sshConfigPath)
+	}
 }
