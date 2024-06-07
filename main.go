@@ -205,10 +205,19 @@ func UIExec(sshConfigPath string) {
 		items[i] = fmt.Sprintf("%s --> %s@%s", host.Name, host.User, host.HostName)
 	}
 
+	searcher := func(input string, index int) bool {
+		item := items[index]
+		name := strings.Replace(strings.ToLower(item), " ", "", -1)
+		input = strings.Replace(strings.ToLower(input), " ", "", -1)
+
+		return strings.Contains(name, input)
+	}
+
 	prompt := promptui.Select{
-		Label: "Select Host",
-		Items: items,
-		Size:  35,
+		Label:    "Select Host",
+		Searcher: searcher,
+		Items:    items,
+		Size:     35,
 		Templates: &promptui.SelectTemplates{
 			Label:    "{{ . }}?",
 			Active:   "\U0001F534 {{ . | cyan }} (press enter to select)",

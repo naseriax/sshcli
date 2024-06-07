@@ -19,8 +19,14 @@ Golang must be installed on the system where you want to compile the code.
 6: run the tool by calling the binary.
 ```
 
+# Hints:
+```
+Use / to bring up the search field to find the host from the list easier.
+```
+
 # Usage:
 ```
+# sshcli -h
 Usage of sshcli:
   -V	prints the compile time
   -action string
@@ -35,6 +41,23 @@ Usage of sshcli:
     	Port
   -user string
     	User
+```
+
+## Bring up the connections ui:
+```
+# sshcli -V
+
+# -V is used to see the program version (compile time)
+```
+
+## Add/Update a profile to/in the ~/.ssh/config file:
+```
+# sshcli -action add -host t001 -hostname 10.10.10.10 -key '~/.ssh/id_rsa' -user root -port 22
+```
+
+## Remove an existing ssh profile from the ~/.ssh/config file:
+```
+# sshcli -action remove -host t001
 ```
 
 
