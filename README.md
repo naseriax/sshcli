@@ -59,5 +59,3 @@ Usage of sshcli:
 ```
 # sshcli -action remove -host t001
 ```
-
-
