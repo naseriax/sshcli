@@ -1,13 +1,12 @@
-# sshcli
+# SSHCLI
 
-## Small cli tool to select ssh/sftp profiles from ~/.ssh/config file using keyboard arrow keys and connect
+SSHCLI is a command-line interface tool that utilizes the `~/.ssh/config` file as a profile database. It allows you to add or remove profiles and connect to those profiles in an interactive environment.
 
-# How to run:
-## Requirement:
-```
-Golang must be installed on the system where you want to compile the code.
-```
-## Steps:
+## Requirements to compile:
+
+To compile the code, you must have Golang installed on your system.
+
+### Steps:
 ```
 1: clone the repository.
 2: run "go mod tidy" to download the extra modules.
@@ -19,12 +18,35 @@ Golang must be installed on the system where you want to compile the code.
 6: run the tool by calling the binary.
 ```
 
-# Hints:
+## Installation:
+You can download the latest binary from the release section for your OS/CPU architecture.
+
+## Hints
+
+Use `/` to bring up the search field to find the host from the list more easily.
+
+## Usage:
+
+### Bring up the connections UI:
+
 ```
-Use / to bring up the search field to find the host from the list easier.
+# ./sshcli
 ```
 
-# Usage:
+### Add or update a profile in the ~/.ssh/config file:
+
+```
+# ./sshcli -action add -host t001 -hostname 10.10.10.10 -key '~/.ssh/id_rsa' -user root -port 22
+```
+
+### Remove an existing SSH profile from the ~/.ssh/config file:
+
+```
+# ./sshcli -action remove -host t001
+```
+
+### For more options, use the help command:
+
 ```
 # sshcli -h
 Usage of sshcli:
@@ -41,21 +63,4 @@ Usage of sshcli:
     	Port
   -user string
     	User
-```
-
-## Bring up the connections ui:
-```
-# sshcli -V
-
-# -V is used to see the program version (compile time)
-```
-
-## Add/Update a profile to/in the ~/.ssh/config file:
-```
-# sshcli -action add -host t001 -hostname 10.10.10.10 -key '~/.ssh/id_rsa' -user root -port 22
-```
-
-## Remove an existing ssh profile from the ~/.ssh/config file:
-```
-# sshcli -action remove -host t001
 ```

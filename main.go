@@ -32,45 +32,68 @@ type SSHConfigProfile struct {
 
 func formatProfile(profile SSHConfigProfile) string {
 	config := fmt.Sprintf("Host %s\n", profile.Host)
-	if profile.HostName != "" {
-		config += fmt.Sprintf("  HostName %s\n", profile.HostName)
-	}
-	if profile.User != "" {
-		config += fmt.Sprintf("  User %s\n", profile.User)
-	}
-	if profile.Port != "" {
-		config += fmt.Sprintf("  Port %s\n", profile.Port)
-	}
-	if profile.IdentityFile != "" {
-		config += fmt.Sprintf("  IdentityFile %s\n", profile.IdentityFile)
-	}
+	config += formatField("HostName", profile.HostName)
+	config += formatField("User", profile.User)
+	config += formatField("Port", profile.Port)
+	config += formatField("IdentityFile", profile.IdentityFile)
 	return config
 }
 
-func removeProfile(host string) error {
-	configFilePath := getSSHConfigPath()
+func formatField(fieldName, fieldValue string) string {
+	if fieldValue != "" {
+		return fmt.Sprintf("    %s %s\n", fieldName, fieldValue)
+	}
+	return ""
+}
 
+func getProfile(host string) (SSHConfigProfile, error) {
+	configFilePath := getSSHConfigPath()
 	input, err := os.ReadFile(configFilePath)
 	if err != nil {
-		return err
+		return SSHConfigProfile{}, err
 	}
 
 	lines := strings.Split(string(input), "\n")
-	var output []string
+	profile := SSHConfigProfile{
+		Host: host,
+	}
 	inBlock := false
 
 	for _, line := range lines {
 		if strings.HasPrefix(line, "Host ") {
 			if strings.TrimSpace(line) == fmt.Sprintf("Host %s", host) {
 				inBlock = true
+				profile.Host = host
 				continue
 			}
 			inBlock = false
 		}
-		if !inBlock {
-			output = append(output, line)
+		if inBlock {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "HostName ") {
+				profile.HostName = strings.TrimSpace(strings.TrimPrefix(line, "HostName"))
+			} else if strings.HasPrefix(line, "User ") {
+				profile.User = strings.TrimSpace(strings.TrimPrefix(line, "User"))
+			} else if strings.HasPrefix(line, "Port ") {
+				profile.Port = strings.TrimSpace(strings.TrimPrefix(line, "Port"))
+			} else if strings.HasPrefix(line, "IdentityFile ") {
+				profile.IdentityFile = strings.TrimSpace(strings.TrimPrefix(line, "IdentityFile"))
+			}
 		}
 	}
+	return profile, nil
+}
+
+func processProfile(host string, profileProcessor func([]string, SSHConfigProfile) []string) error {
+	configFilePath := getSSHConfigPath()
+	input, err := os.ReadFile(configFilePath)
+	if err != nil {
+		return err
+	}
+
+	lines := strings.Split(string(input), "\n")
+	profile := SSHConfigProfile{Host: host}
+	output := profileProcessor(lines, profile)
 
 	outputString := strings.Join(output, "\n")
 	if err := os.WriteFile(configFilePath, []byte(outputString), 0600); err != nil {
@@ -80,11 +103,47 @@ func removeProfile(host string) error {
 	return nil
 }
 
-func addOrUpdateProfile(profile SSHConfigProfile) error {
+func removeProfile(host string) error {
+	return processProfile(host, func(lines []string, profile SSHConfigProfile) []string {
+		var output []string
+		inBlock := false
+
+		for _, line := range lines {
+			if strings.HasPrefix(line, "Host ") {
+				if strings.TrimSpace(line) == fmt.Sprintf("Host %s", host) {
+					inBlock = true
+					continue
+				}
+				inBlock = false
+			}
+			if !inBlock {
+				output = append(output, line)
+			}
+		}
+		return output
+	})
+}
+
+func addOrUpdateProfile(newProfile SSHConfigProfile) error {
 	configFilePath := getSSHConfigPath()
 	input, err := os.ReadFile(configFilePath)
 	if err != nil {
 		return err
+	}
+
+	existingProfile, _ := getProfile(newProfile.Host)
+
+	if newProfile.HostName != "" {
+		existingProfile.HostName = newProfile.HostName
+	}
+	if newProfile.User != "" {
+		existingProfile.User = newProfile.User
+	}
+	if newProfile.IdentityFile != "" {
+		existingProfile.IdentityFile = newProfile.IdentityFile
+	}
+	if newProfile.Port != "" {
+		existingProfile.Port = newProfile.Port
 	}
 
 	lines := strings.Split(string(input), "\n")
@@ -95,12 +154,11 @@ func addOrUpdateProfile(profile SSHConfigProfile) error {
 	for _, line := range lines {
 		if strings.HasPrefix(line, "Host ") {
 			if inBlock {
-				// Close the block
-				output = append(output, formatProfile(profile))
+				output = append(output, formatProfile(existingProfile))
 				inBlock = false
 				found = true
 			}
-			if strings.TrimSpace(line) == fmt.Sprintf("Host %s", profile.Host) {
+			if strings.TrimSpace(line) == fmt.Sprintf("Host %s", existingProfile.Host) {
 				inBlock = true
 				continue
 			}
@@ -110,7 +168,7 @@ func addOrUpdateProfile(profile SSHConfigProfile) error {
 		}
 	}
 	if !found {
-		output = append(output, formatProfile(profile))
+		output = append(output, formatProfile(existingProfile))
 	}
 
 	outputString := strings.Join(output, "\n")
@@ -159,51 +217,8 @@ func doConfigBackup(sshConfigPath string) {
 }
 
 func UIExec(sshConfigPath string) {
-	file, err := os.Open(sshConfigPath)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer file.Close()
-
-	var hosts []Host
-	var currentHost *Host
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if strings.HasPrefix(line, "Host ") {
-			if currentHost != nil {
-				hosts = append(hosts, *currentHost)
-			}
-			hostName := strings.TrimPrefix(line, "Host ")
-			currentHost = &Host{Name: hostName}
-		} else if currentHost != nil {
-			if strings.HasPrefix(line, "HostName ") {
-				ip := strings.TrimPrefix(line, "HostName ")
-				currentHost.HostName = ip
-			} else if strings.HasPrefix(line, "User ") {
-				user := strings.TrimPrefix(line, "User ")
-				currentHost.User = user
-			}
-		}
-	}
-
-	if currentHost != nil {
-		hosts = append(hosts, *currentHost)
-	}
-
-	if err := scanner.Err(); err != nil {
-		log.Fatal(err)
-	}
-
-	sort.Slice(hosts, func(i, j int) bool {
-		return hosts[i].Name < hosts[j].Name
-	})
-
-	items := make([]string, len(hosts))
-	for i, host := range hosts {
-		items[i] = fmt.Sprintf("%s --> %s@%s", host.Name, host.User, host.HostName)
-	}
+	hosts := getHosts(sshConfigPath)
+	items := getItems(hosts)
 
 	searcher := func(input string, index int) bool {
 		item := items[index]
@@ -264,6 +279,62 @@ func UIExec(sshConfigPath string) {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Run()
+}
+
+func getHosts(sshConfigPath string) []Host {
+	file, err := os.Open(sshConfigPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer file.Close()
+
+	var hosts []Host
+	var currentHost *Host
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "Host ") {
+			hostName := strings.TrimPrefix(line, "Host ")
+			if hostName == "*" {
+				continue
+			}
+			if currentHost != nil {
+				hosts = append(hosts, *currentHost)
+			}
+			currentHost = &Host{Name: hostName}
+		} else if currentHost != nil {
+			if strings.HasPrefix(line, "HostName ") {
+				ip := strings.TrimPrefix(line, "HostName ")
+				currentHost.HostName = ip
+			} else if strings.HasPrefix(line, "User ") {
+				user := strings.TrimPrefix(line, "User ")
+				currentHost.User = user
+			}
+		}
+	}
+
+	if currentHost != nil && currentHost.Name != "*" {
+		hosts = append(hosts, *currentHost)
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.Fatal(err)
+	}
+
+	sort.Slice(hosts, func(i, j int) bool {
+		return hosts[i].Name < hosts[j].Name
+	})
+
+	return hosts
+}
+
+func getItems(hosts []Host) []string {
+	items := make([]string, len(hosts))
+	for i, host := range hosts {
+		items[i] = fmt.Sprintf("%s --> %s@%s", host.Name, host.User, host.HostName)
+	}
+	return items
 }
 
 func main() {
