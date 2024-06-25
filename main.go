@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -16,13 +17,32 @@ import (
 
 var CompileTime = ""
 
-type Host struct {
-	Name     string
-	HostName string
-	User     string
+func doConfigBackup() error {
+	configFilePath, err := getSSHConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to get the config file path")
+	}
+
+	backupConfigFilePath := configFilePath + "_backup"
+
+	srcFile, err := os.Open(configFilePath)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	dstFile, err := os.Create(backupConfigFilePath)
+	if err != nil {
+		return err
+	}
+	defer dstFile.Close()
+
+	_, err = io.Copy(dstFile, srcFile)
+	return err
 }
 
-type SSHConfigProfile struct {
+// SSHConfig represents the configuration for an SSH host entry
+type SSHConfig struct {
 	Host         string
 	HostName     string
 	User         string
@@ -30,161 +50,241 @@ type SSHConfigProfile struct {
 	IdentityFile string
 }
 
-func formatProfile(profile SSHConfigProfile) string {
-	config := fmt.Sprintf("Host %s\n", profile.Host)
-	config += formatField("HostName", profile.HostName)
-	config += formatField("User", profile.User)
-	config += formatField("Port", profile.Port)
-	config += formatField("IdentityFile", profile.IdentityFile)
-	return config
+type Host struct {
+	Name     string
+	HostName string
+	User     string
 }
 
-func formatField(fieldName, fieldValue string) string {
-	if fieldValue != "" {
-		return fmt.Sprintf("    %s %s\n", fieldName, fieldValue)
-	}
-	return ""
-}
-
-func getProfile(host string) (SSHConfigProfile, error) {
-	configFilePath := getSSHConfigPath()
-	input, err := os.ReadFile(configFilePath)
+// updateSSHConfig updates or adds an SSH host configuration in the ~/.ssh/config file
+// It modifies only the fields provided in the input config, preserving other existing fields
+func updateSSHConfig(config SSHConfig) error {
+	// Get the user's home directory
+	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return SSHConfigProfile{}, err
+		return fmt.Errorf("failed to get user home directory: %w", err)
 	}
 
-	lines := strings.Split(string(input), "\n")
-	profile := SSHConfigProfile{
-		Host: host,
-	}
-	inBlock := false
+	configPath := filepath.Join(homeDir, ".ssh", "config")
 
-	for _, line := range lines {
-		if strings.HasPrefix(line, "Host ") {
-			if strings.TrimSpace(line) == fmt.Sprintf("Host %s", host) {
-				inBlock = true
-				profile.Host = host
-				continue
+	// Read existing config file
+	content, err := os.ReadFile(configPath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to read SSH config file: %w", err)
+	}
+
+	lines := strings.Split(string(content), "\n")
+	var newLines []string
+	inHostBlock := false
+	hostUpdated := false
+	updatedFields := make(map[string]bool)
+
+	// Process existing config line by line
+	for i, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmedLine, "Host ") {
+			if inHostBlock {
+				// Add any fields that weren't in the existing config
+				newLines = append(newLines, addMissingFields(config, updatedFields)...)
+				inHostBlock = false
 			}
-			inBlock = false
-		}
-		if inBlock {
-			line = strings.TrimSpace(line)
-			if strings.HasPrefix(line, "HostName ") {
-				profile.HostName = strings.TrimSpace(strings.TrimPrefix(line, "HostName"))
-			} else if strings.HasPrefix(line, "User ") {
-				profile.User = strings.TrimSpace(strings.TrimPrefix(line, "User"))
-			} else if strings.HasPrefix(line, "Port ") {
-				profile.Port = strings.TrimSpace(strings.TrimPrefix(line, "Port"))
-			} else if strings.HasPrefix(line, "IdentityFile ") {
-				profile.IdentityFile = strings.TrimSpace(strings.TrimPrefix(line, "IdentityFile"))
+			if trimmedLine == fmt.Sprintf("Host %s", config.Host) {
+				inHostBlock = true
+				hostUpdated = true
 			}
 		}
-	}
-	return profile, nil
-}
 
-func processProfile(host string, profileProcessor func([]string, SSHConfigProfile) []string) error {
-	configFilePath := getSSHConfigPath()
-	input, err := os.ReadFile(configFilePath)
+		if inHostBlock {
+			// Parse and potentially update each field in the host block
+			field, value := parseField(trimmedLine)
+			if newValue := getUpdatedValue(config, field); newValue != "" {
+				newLines = append(newLines, fmt.Sprintf("    %s %s", field, newValue))
+				updatedFields[field] = true
+			} else if value != "" {
+				newLines = append(newLines, line) // Keep existing value
+			}
+		} else {
+			newLines = append(newLines, line)
+		}
+
+		// Handle the case where the host block is at the end of the file
+		if i == len(lines)-1 && inHostBlock {
+			newLines = append(newLines, addMissingFields(config, updatedFields)...)
+		}
+	}
+
+	// Add new host block if not updated
+	if !hostUpdated {
+		if len(newLines) > 0 && newLines[len(newLines)-1] != "" {
+			newLines = append(newLines, "")
+		}
+		newLines = append(newLines, generateHostBlock(config)...)
+	}
+
+	// Write updated config back to file
+	file, err := os.Create(configPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create SSH config file: %w", err)
+	}
+	defer file.Close()
+
+	writer := bufio.NewWriter(file)
+	for _, line := range newLines {
+		fmt.Fprintln(writer, line)
 	}
 
-	lines := strings.Split(string(input), "\n")
-	profile := SSHConfigProfile{Host: host}
-	output := profileProcessor(lines, profile)
-
-	outputString := strings.Join(output, "\n")
-	if err := os.WriteFile(configFilePath, []byte(outputString), 0600); err != nil {
-		return err
+	if err := writer.Flush(); err != nil {
+		return fmt.Errorf("failed to write SSH config file: %w", err)
 	}
 
 	return nil
 }
 
-func removeProfile(host string) error {
-	return processProfile(host, func(lines []string, profile SSHConfigProfile) []string {
-		var output []string
-		inBlock := false
-
-		for _, line := range lines {
-			if strings.HasPrefix(line, "Host ") {
-				if strings.TrimSpace(line) == fmt.Sprintf("Host %s", host) {
-					inBlock = true
-					continue
-				}
-				inBlock = false
-			}
-			if !inBlock {
-				output = append(output, line)
-			}
-		}
-		return output
-	})
+// parseField extracts the field name and value from a config line
+func parseField(line string) (string, string) {
+	parts := strings.SplitN(line, " ", 2)
+	if len(parts) == 2 {
+		return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+	}
+	return "", ""
 }
 
-func addOrUpdateProfile(newProfile SSHConfigProfile) error {
-	configFilePath := getSSHConfigPath()
-	input, err := os.ReadFile(configFilePath)
+// getUpdatedValue returns the new value for a field if it's provided in the input config
+// Returns an empty string if the field is not to be updated
+func getUpdatedValue(config SSHConfig, field string) string {
+	switch strings.ToLower(field) {
+	case "hostname":
+		return config.HostName
+	case "user":
+		return config.User
+	case "port":
+		return config.Port
+	case "identityfile":
+		return config.IdentityFile
+	// Add other fields as needed
+	default:
+		return ""
+	}
+}
+
+// addMissingFields generates config lines for fields that are in the input config
+// but were not present or updated in the existing config
+func addMissingFields(config SSHConfig, updatedFields map[string]bool) []string {
+	var missingFields []string
+	if config.HostName != "" && !updatedFields["HostName"] {
+		missingFields = append(missingFields, fmt.Sprintf("    HostName %s", config.HostName))
+	}
+	if config.User != "" && !updatedFields["User"] {
+		missingFields = append(missingFields, fmt.Sprintf("    User %s", config.User))
+	}
+	if config.Port != "" && !updatedFields["Port"] {
+		missingFields = append(missingFields, fmt.Sprintf("    Port %s", config.Port))
+	}
+	if config.IdentityFile != "" && !updatedFields["IdentityFile"] {
+		missingFields = append(missingFields, fmt.Sprintf("    IdentityFile %s", config.IdentityFile))
+	}
+	// Add other fields as needed
+	return missingFields
+}
+
+// generateHostBlock creates a complete host block for a new host
+func generateHostBlock(config SSHConfig) []string {
+	var block []string
+	block = append(block, fmt.Sprintf("Host %s", config.Host))
+	if config.HostName != "" {
+		block = append(block, fmt.Sprintf("    HostName %s", config.HostName))
+	}
+	if config.User != "" {
+		block = append(block, fmt.Sprintf("    User %s", config.User))
+	}
+	if config.Port != "" {
+		block = append(block, fmt.Sprintf("    Port %s", config.Port))
+	}
+	if config.IdentityFile != "" {
+		block = append(block, fmt.Sprintf("    IdentityFile %s", config.IdentityFile))
+	}
+	// Add other fields as needed
+	return block
+}
+
+// deleteSSHProfile removes a specified host and its parameters from the SSH config file
+func deleteSSHProfile(host string) error {
+	// Get the user's home directory
+	configPath, err := getSSHConfigPath()
 	if err != nil {
-		return err
+		log.Fatal(err)
+	}
+	// Read existing config file
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // File doesn't exist, nothing to delete
+		}
+		return fmt.Errorf("failed to read SSH config file: %w", err)
 	}
 
-	existingProfile, _ := getProfile(newProfile.Host)
+	lines := strings.Split(string(content), "\n")
+	var newLines []string
+	inHostBlock := false
+	hostFound := false
 
-	if newProfile.HostName != "" {
-		existingProfile.HostName = newProfile.HostName
-	}
-	if newProfile.User != "" {
-		existingProfile.User = newProfile.User
-	}
-	if newProfile.IdentityFile != "" {
-		existingProfile.IdentityFile = newProfile.IdentityFile
-	}
-	if newProfile.Port != "" {
-		existingProfile.Port = newProfile.Port
-	}
-
-	lines := strings.Split(string(input), "\n")
-	var output []string
-	inBlock := false
-	found := false
-
-	for _, line := range lines {
-		if strings.HasPrefix(line, "Host ") {
-			if inBlock {
-				output = append(output, formatProfile(existingProfile))
-				inBlock = false
-				found = true
+	// Process existing config line by line
+	for i, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmedLine, "Host ") {
+			if inHostBlock {
+				inHostBlock = false
 			}
-			if strings.TrimSpace(line) == fmt.Sprintf("Host %s", existingProfile.Host) {
-				inBlock = true
+			if trimmedLine == fmt.Sprintf("Host %s", host) {
+				inHostBlock = true
+				hostFound = true
 				continue
 			}
 		}
-		if !inBlock {
-			output = append(output, line)
+
+		if !inHostBlock {
+			newLines = append(newLines, line)
+		}
+
+		// Handle the case where the host block is at the end of the file
+		if i == len(lines)-1 && inHostBlock {
+			inHostBlock = false
 		}
 	}
-	if !found {
-		output = append(output, formatProfile(existingProfile))
+
+	if !hostFound {
+		return fmt.Errorf("host %s not found in SSH config", host)
 	}
 
-	outputString := strings.Join(output, "\n")
-	if err := os.WriteFile(configFilePath, []byte(outputString), 0600); err != nil {
-		return err
+	// Write updated config back to file
+	file, err := os.Create(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to create SSH config file: %w", err)
+	}
+	defer file.Close()
+
+	writer := bufio.NewWriter(file)
+	for _, line := range newLines {
+		fmt.Fprintln(writer, line)
+	}
+
+	if err := writer.Flush(); err != nil {
+		return fmt.Errorf("failed to write SSH config file: %w", err)
 	}
 
 	return nil
 }
 
-func getSSHConfigPath() string {
-	homeDir, _ := os.UserHomeDir()
-	return filepath.Join(homeDir, ".ssh", "config")
+func getSSHConfigPath() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get user home directory: %w", err)
+	}
+
+	return filepath.Join(homeDir, ".ssh", "config"), nil
 }
 
-func processCliArgs() (SSHConfigProfile, *string) {
+func processCliArgs() (SSHConfig, *string) {
 	action := flag.String("action", "", "Action to perform: add or remove")
 	host := flag.String("host", "", "Host alias")
 	hostname := flag.String("hostname", "", "HostName")
@@ -199,7 +299,7 @@ func processCliArgs() (SSHConfigProfile, *string) {
 		fmt.Println("Compile time:", CompileTime)
 	}
 
-	profile := SSHConfigProfile{
+	profile := SSHConfig{
 		Host:         *host,
 		HostName:     *hostname,
 		User:         *user,
@@ -208,12 +308,6 @@ func processCliArgs() (SSHConfigProfile, *string) {
 	}
 
 	return profile, action
-}
-
-func doConfigBackup(sshConfigPath string) {
-	backupCmd := exec.Command(fmt.Sprintf("cp %s %s.backup", sshConfigPath, sshConfigPath))
-	backupCmd.Stderr = os.Stderr
-	backupCmd.Run()
 }
 
 func UIExec(sshConfigPath string) {
@@ -339,7 +433,10 @@ func getItems(hosts []Host) []string {
 
 func main() {
 
-	sshConfigPath := getSSHConfigPath()
+	sshConfigPath, err := getSSHConfigPath()
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	profile, action := processCliArgs()
 
@@ -348,18 +445,19 @@ func main() {
 			fmt.Println("Usage: -action [add|remove] -host HOST [other flags...]")
 			return
 		} else {
-			doConfigBackup(sshConfigPath)
+			doConfigBackup()
 			switch *action {
 			case "add":
-				if err := addOrUpdateProfile(profile); err != nil {
+				if err := updateSSHConfig(profile); err != nil {
 					fmt.Println("Error adding/updating profile:", err)
+					os.Exit(1)
 				}
 			case "remove":
-				if err := removeProfile(profile.Host); err != nil {
+				if err := deleteSSHProfile(profile.Host); err != nil {
 					fmt.Println("Error removing profile:", err)
 				}
 			default:
-				fmt.Println("Invalid action. Use 'add' or 'remove'.")
+				fmt.Println("Invalid action. Use '-action add' or '-action remove'.")
 			}
 		}
 	} else {
