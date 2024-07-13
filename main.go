@@ -158,7 +158,7 @@ func editProfile(profileName, sshConfigPath string) error {
 		// Here you would update your SSH config file with the modified content
 		fmt.Printf("Modified profile for %s:\n", profileName)
 	} else {
-		fmt.Println("Profile %s was not modified.", profileName)
+		fmt.Printf("Profile %s was not modified.\n", profileName)
 	}
 
 	return nil
