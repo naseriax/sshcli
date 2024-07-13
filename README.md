@@ -7,9 +7,10 @@ SSHCLI is a command-line interface tool that utilizes the `~/.ssh/config` file a
 To compile the code, you must have Golang installed on your system.
 
 ## Requirements to run:
-
-ssh and sftp commands must be available in the path environment.
-
+```
+ - ssh and sftp commands must be available in the path environment.
+ - In Windows, make sure to run the tool in Windows Terminal app to have a better UX.
+```
 ### Steps:
 ```
 1: clone the repository.
@@ -72,6 +73,3 @@ Usage of sshcli:
 <img width="619" alt="image" src="https://github.com/user-attachments/assets/4e864ef1-2792-46b4-85fb-6cc4383b245d">
 
 <img width="451" alt="image" src="https://github.com/user-attachments/assets/051f70aa-c82a-4630-bcd4-b7419b391d05">
-
-
-
