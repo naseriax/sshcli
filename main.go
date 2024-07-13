@@ -51,9 +51,11 @@ type SSHConfig struct {
 }
 
 type Host struct {
-	Name     string
-	HostName string
-	User     string
+	Name         string
+	HostName     string
+	User         string
+	Port         string
+	IdentityFile string
 }
 
 // updateSSHConfig updates or adds an SSH host configuration in the ~/.ssh/config file
@@ -285,12 +287,24 @@ func getSSHConfigPath() (string, error) {
 }
 
 func processCliArgs() (SSHConfig, *string) {
-	action := flag.String("action", "", "Action to perform: add or remove")
+	action := flag.String("action", "", "Action to perform: add, remove")
+	flag.StringVar(action, "A", "", "Action to perform: add, remove")
+
 	host := flag.String("host", "", "Host alias")
-	hostname := flag.String("hostname", "", "HostName")
-	user := flag.String("user", "", "User")
-	port := flag.String("port", "", "Port")
+	flag.StringVar(host, "H", "", "Host alias")
+
+	hostname := flag.String("hostname", "", "HostName or IP address")
+	flag.StringVar(hostname, "I", "", "HostName or IP address")
+
+	username := flag.String("username", "", "Username")
+	flag.StringVar(username, "U", "", "Username")
+
+	port := flag.String("port", "", "Port Number")
+	flag.StringVar(port, "P", "", "Port Number")
+
 	identityFile := flag.String("key", "", "IdentityFile path")
+	flag.StringVar(identityFile, "K", "", "IdentityFile path")
+
 	version := flag.Bool("V", false, "prints the compile time")
 
 	flag.Parse()
@@ -302,7 +316,7 @@ func processCliArgs() (SSHConfig, *string) {
 	profile := SSHConfig{
 		Host:         *host,
 		HostName:     *hostname,
-		User:         *user,
+		User:         *username,
 		Port:         *port,
 		IdentityFile: *identityFile,
 	}
@@ -353,6 +367,7 @@ func UIExec(sshConfigPath string) {
 
 	promptCommand := promptui.Select{
 		Label: "Select Command",
+		// Items: []string{"ssh", "sftp", "edit profile"},
 		Items: []string{"ssh", "sftp"},
 		Templates: &promptui.SelectTemplates{
 			Label:    "{{ . }}?",
@@ -368,11 +383,16 @@ func UIExec(sshConfigPath string) {
 		return
 	}
 
-	cmd := exec.Command(command, hostName)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Run()
+	if strings.EqualFold(command, "edit") {
+		//Put single profile edit codes here!
+
+	} else {
+		cmd := exec.Command(command, hostName)
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		cmd.Run()
+	}
 }
 
 func getHosts(sshConfigPath string) []Host {
@@ -404,6 +424,12 @@ func getHosts(sshConfigPath string) []Host {
 			} else if strings.HasPrefix(line, "User ") {
 				user := strings.TrimPrefix(line, "User ")
 				currentHost.User = user
+			} else if strings.HasPrefix(line, "Port ") {
+				port := strings.TrimPrefix(line, "Port ")
+				currentHost.Port = port
+			} else if strings.HasPrefix(line, "IdentityFile ") {
+				key := strings.TrimPrefix(line, "IdentityFile ")
+				currentHost.IdentityFile = key
 			}
 		}
 	}
