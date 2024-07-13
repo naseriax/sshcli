@@ -285,24 +285,12 @@ func getSSHConfigPath() (string, error) {
 }
 
 func processCliArgs() (SSHConfig, *string) {
-	action := flag.String("action", "add", "Action to perform: add or remove. default: add")
-	// flag.StringVar(action, "A", "add", "Action to perform: add or remove. default: add")
-
+	action := flag.String("action", "", "Action to perform: add or remove")
 	host := flag.String("host", "", "Host alias")
-	// flag.StringVar(host, "H", "add", "Action to perform: add or remove. default: add")
-
-	hostname := flag.String("hostname", "", "HostName or the IP address")
-	// flag.StringVar(hostname, "I", "", "HostName or the IP address")
-
-	username := flag.String("username", "root", "Username. default: root")
-	// flag.StringVar(username, "U", "root", "Username. default: root")
-
-	port := flag.String("port", "22", "Port number. default: 22")
-	// flag.StringVar(port, "P", "22", "Port number. default: 22")
-
-	identityFile := flag.String("key", "~/.ssh/id_rsa", "IdentityFile path. default: ~/.ssh/id_rsa")
-	// flag.StringVar(identityFile, "K", "~/.ssh/id_rsa", "IdentityFile path. default: ~/.ssh/id_rsa")
-
+	hostname := flag.String("hostname", "", "HostName")
+	user := flag.String("user", "", "User")
+	port := flag.String("port", "", "Port")
+	identityFile := flag.String("key", "", "IdentityFile path")
 	version := flag.Bool("V", false, "prints the compile time")
 
 	flag.Parse()
@@ -314,7 +302,7 @@ func processCliArgs() (SSHConfig, *string) {
 	profile := SSHConfig{
 		Host:         *host,
 		HostName:     *hostname,
-		User:         *username,
+		User:         *user,
 		Port:         *port,
 		IdentityFile: *identityFile,
 	}
