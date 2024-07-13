@@ -68,3 +68,10 @@ Usage of sshcli:
     	Username
   -V	prints the compile time
 ```
+
+<img width="619" alt="image" src="https://github.com/user-attachments/assets/4e864ef1-2792-46b4-85fb-6cc4383b245d">
+
+<img width="451" alt="image" src="https://github.com/user-attachments/assets/051f70aa-c82a-4630-bcd4-b7419b391d05">
+
+
+
