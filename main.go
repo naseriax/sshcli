@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -16,6 +17,15 @@ import (
 )
 
 var CompileTime = ""
+
+// SSHConfig represents the configuration for an SSH host entry
+type SSHConfig struct {
+	Host         string
+	HostName     string
+	User         string
+	Port         string
+	IdentityFile string
+}
 
 func doConfigBackup() error {
 	configFilePath, err := getSSHConfigPath()
@@ -41,21 +51,117 @@ func doConfigBackup() error {
 	return err
 }
 
-// SSHConfig represents the configuration for an SSH host entry
-type SSHConfig struct {
-	Host         string
-	HostName     string
-	User         string
-	Port         string
-	IdentityFile string
+func check_SSH_SFTP_ShellCommands(c string) {
+	if _, err := exec.LookPath(c); err != nil {
+		log.Fatalf("%v command is not available in the default system shell", c)
+	}
 }
 
-type Host struct {
-	Name         string
-	HostName     string
-	User         string
-	Port         string
-	IdentityFile string
+func getDefaultEditor() string {
+	if runtime.GOOS == "windows" {
+		// Check for common CLI editors first
+		editors := []string{"nano", "vim", "notepad"}
+		for _, editor := range editors {
+			if _, err := exec.LookPath(editor); err == nil {
+				return editor
+			}
+		}
+	}
+
+	// Fall back to OS-specific defaults
+	switch runtime.GOOS {
+	case "windows":
+		return "notepad"
+	default:
+		return "vi"
+	}
+}
+
+func editProfile(profileName, sshConfigPath string) error {
+	// Create a temporary file
+	tmpfile, err := os.CreateTemp("", "ssh-profile-*.txt")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %v", err)
+	}
+
+	defer os.Remove(tmpfile.Name())
+
+	hosts := getHosts(sshConfigPath)
+
+	config := SSHConfig{}
+
+	for _, h := range hosts {
+		if h.Host == profileName {
+			config = h
+		}
+	}
+
+	profileContent := generateHostBlock(config)
+
+	writer := bufio.NewWriter(tmpfile)
+	for _, line := range profileContent {
+		fmt.Fprintln(writer, line)
+	}
+
+	if err := writer.Flush(); err != nil {
+		return fmt.Errorf("failed to write SSH config file: %w", err)
+	}
+
+	if err := tmpfile.Close(); err != nil {
+		return fmt.Errorf("failed to close temp file: %v", err)
+	}
+
+	fileInfoBefore, err := os.Stat(tmpfile.Name())
+	if err != nil {
+		return fmt.Errorf("failed to get file info: %v", err)
+	}
+
+	// Determine the editor to use
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = getDefaultEditor()
+	}
+
+	// Open the editor
+	cmd := exec.Command(editor, tmpfile.Name())
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	// if err := cmd.Run(); err != nil {
+	// 	return fmt.Errorf("failed to run editor: %v", err)
+	// }
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start editor: %v", err)
+	}
+
+	// Wait for the editor to close
+	if err := cmd.Wait(); err != nil {
+		return fmt.Errorf("editor exited with error: %v", err)
+	}
+
+	fileInfoAfter, err := os.Stat(tmpfile.Name())
+	if err != nil {
+		return fmt.Errorf("failed to get file info after editing: %v", err)
+	}
+
+	if fileInfoAfter.ModTime().After(fileInfoBefore.ModTime()) {
+		// Read the modified content
+		newHost := getHosts(tmpfile.Name())[0]
+		deleteSSHProfile(newHost.Host)
+		updateSSHConfig(newHost)
+		if err != nil {
+			return fmt.Errorf("failed to read modified file: %v", err)
+		}
+
+		// Here you would update your SSH config file with the modified content
+		fmt.Printf("Modified profile for %s:\n", profileName)
+	} else {
+		fmt.Println("Profile %s was not modified.", profileName)
+	}
+
+	return nil
 }
 
 // updateSSHConfig updates or adds an SSH host configuration in the ~/.ssh/config file
@@ -367,8 +473,8 @@ func UIExec(sshConfigPath string) {
 
 	promptCommand := promptui.Select{
 		Label: "Select Command",
-		// Items: []string{"ssh", "sftp", "edit profile"},
-		Items: []string{"ssh", "sftp"},
+		Items: []string{"ssh", "sftp", "edit profile"},
+		// Items: []string{"ssh", "sftp"},
 		Templates: &promptui.SelectTemplates{
 			Label:    "{{ . }}?",
 			Active:   "\U0001F534 {{ . | cyan }} (press enter to select)",
@@ -383,10 +489,11 @@ func UIExec(sshConfigPath string) {
 		return
 	}
 
-	if strings.EqualFold(command, "edit") {
-		//Put single profile edit codes here!
+	if strings.EqualFold(command, "edit profile") {
+		editProfile(hostName, sshConfigPath)
 
 	} else {
+		check_SSH_SFTP_ShellCommands(command)
 		cmd := exec.Command(command, hostName)
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
@@ -395,46 +502,42 @@ func UIExec(sshConfigPath string) {
 	}
 }
 
-func getHosts(sshConfigPath string) []Host {
+func getHosts(sshConfigPath string) []SSHConfig {
 	file, err := os.Open(sshConfigPath)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer file.Close()
 
-	var hosts []Host
-	var currentHost *Host
+	var hosts []SSHConfig
+	var currentHost *SSHConfig
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if strings.HasPrefix(line, "Host ") {
-			hostName := strings.TrimPrefix(line, "Host ")
-			if hostName == "*" {
+			host := strings.TrimPrefix(line, "Host ")
+			if host == "*" {
 				continue
 			}
 			if currentHost != nil {
 				hosts = append(hosts, *currentHost)
 			}
-			currentHost = &Host{Name: hostName}
+			currentHost = &SSHConfig{Host: host}
 		} else if currentHost != nil {
 			if strings.HasPrefix(line, "HostName ") {
-				ip := strings.TrimPrefix(line, "HostName ")
-				currentHost.HostName = ip
+				currentHost.HostName = strings.TrimPrefix(line, "HostName ")
 			} else if strings.HasPrefix(line, "User ") {
-				user := strings.TrimPrefix(line, "User ")
-				currentHost.User = user
+				currentHost.User = strings.TrimPrefix(line, "User ")
 			} else if strings.HasPrefix(line, "Port ") {
-				port := strings.TrimPrefix(line, "Port ")
-				currentHost.Port = port
+				currentHost.Port = strings.TrimPrefix(line, "Port ")
 			} else if strings.HasPrefix(line, "IdentityFile ") {
-				key := strings.TrimPrefix(line, "IdentityFile ")
-				currentHost.IdentityFile = key
+				currentHost.IdentityFile = strings.TrimPrefix(line, "IdentityFile ")
 			}
 		}
 	}
 
-	if currentHost != nil && currentHost.Name != "*" {
+	if currentHost != nil && currentHost.Host != "*" {
 		hosts = append(hosts, *currentHost)
 	}
 
@@ -443,16 +546,16 @@ func getHosts(sshConfigPath string) []Host {
 	}
 
 	sort.Slice(hosts, func(i, j int) bool {
-		return hosts[i].Name < hosts[j].Name
+		return hosts[i].Host < hosts[j].Host
 	})
 
 	return hosts
 }
 
-func getItems(hosts []Host) []string {
+func getItems(hosts []SSHConfig) []string {
 	items := make([]string, len(hosts))
 	for i, host := range hosts {
-		items[i] = fmt.Sprintf("%s --> %s@%s", host.Name, host.User, host.HostName)
+		items[i] = fmt.Sprintf("%s --> %s@%s", host.Host, host.User, host.HostName)
 	}
 	return items
 }

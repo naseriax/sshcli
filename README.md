@@ -6,6 +6,10 @@ SSHCLI is a command-line interface tool that utilizes the `~/.ssh/config` file a
 
 To compile the code, you must have Golang installed on your system.
 
+## Requirements to run:
+
+ssh and sftp commands must be available in the path environment.
+
 ### Steps:
 ```
 1: clone the repository.
@@ -48,19 +52,19 @@ Use `/` to bring up the search field to find the host from the list more easily.
 ### For more options, use the help command:
 
 ```
-# sshcli -h
+ ~ ➤ sshcli -h
 Usage of sshcli:
-  -V	prints the compile time
-  -action string
-    	Action to perform: add or remove
-  -host string
+  -A, --action string
+    	Action to perform: add, remove
+  -H, --host string
     	Host alias
-  -hostname string
-    	HostName
-  -key string
+  -I, --hostname string
+    	HostName or IP address
+  -K, --key string
     	IdentityFile path
-  -port string
-    	Port
-  -user string
-    	User
+  -P, --port string
+    	Port Number
+  -U, --username string
+    	Username
+  -V	prints the compile time
 ```
