@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"flag"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"sort"
 	"strings"
 
@@ -128,10 +130,6 @@ func editProfile(profileName, sshConfigPath string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	// if err := cmd.Run(); err != nil {
-	// 	return fmt.Errorf("failed to run editor: %v", err)
-	// }
-
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start editor: %v", err)
 	}
@@ -148,15 +146,28 @@ func editProfile(profileName, sshConfigPath string) error {
 
 	if fileInfoAfter.ModTime().After(fileInfoBefore.ModTime()) {
 		// Read the modified content
-		newHost := getHosts(tmpfile.Name())[0]
-		deleteSSHProfile(newHost.Host)
-		updateSSHConfig(newHost)
-		if err != nil {
-			return fmt.Errorf("failed to read modified file: %v", err)
+		newHosts := getHosts(tmpfile.Name())
+		newHost := SSHConfig{}
+
+		if len(newHosts) > 0 {
+			newHost = newHosts[0]
+		} else {
+			log.Fatalf("the file has no valid ssh/sftp profile")
 		}
 
-		// Here you would update your SSH config file with the modified content
-		fmt.Printf("Modified profile for %s:\n", profileName)
+		if newHost.Host != "" {
+			deleteSSHProfile(newHost.Host)
+			updateSSHConfig(newHost)
+
+			if newHost.Host == config.Host {
+				fmt.Printf("Modified profile for %s\n", profileName)
+			} else {
+				fmt.Printf("A new profile with a the name:%s has been added\n", newHost.Host)
+			}
+		} else {
+			fmt.Printf("The edited file is not valid, hence the profile %s was not modified.\n", profileName)
+		}
+
 	} else {
 		fmt.Printf("Profile %s was not modified.\n", profileName)
 	}
@@ -560,7 +571,37 @@ func getItems(hosts []SSHConfig) []string {
 	return items
 }
 
+func customPanicHandler() {
+	if r := recover(); r != nil {
+		// Get the stack trace
+		stack := debug.Stack()
+
+		// Remove file paths from the stack trace
+		sanitizedStack := removePaths(stack)
+
+		// Log or print the sanitized stack trace
+		fmt.Printf("Panic: %v\n%s", r, sanitizedStack)
+
+		// Optionally, exit the program
+		os.Exit(1)
+	}
+}
+
+func removePaths(stack []byte) []byte {
+	lines := bytes.Split(stack, []byte("\n"))
+	for i, line := range lines {
+		if idx := bytes.LastIndex(line, []byte("/go/")); idx != -1 {
+			lines[i] = line[idx+4:]
+		} else if idx := bytes.Index(line, []byte(":")); idx != -1 {
+			lines[i] = line[idx:]
+		}
+	}
+	return bytes.Join(lines, []byte("\n"))
+}
+
 func main() {
+
+	defer customPanicHandler()
 
 	sshConfigPath, err := getSSHConfigPath()
 	if err != nil {
