@@ -484,7 +484,7 @@ func UIExec(sshConfigPath string) {
 
 	promptCommand := promptui.Select{
 		Label: "Select Command",
-		Items: []string{"ssh", "sftp", "edit profile"},
+		Items: []string{"ssh", "sftp", "edit profile", "remove profile"},
 		// Items: []string{"ssh", "sftp"},
 		Templates: &promptui.SelectTemplates{
 			Label:    "{{ . }}?",
@@ -502,6 +502,9 @@ func UIExec(sshConfigPath string) {
 
 	if strings.EqualFold(command, "edit profile") {
 		editProfile(hostName, sshConfigPath)
+
+	} else if strings.EqualFold(command, "remove profile") {
+		deleteSSHProfile(hostName)
 
 	} else {
 		check_SSH_SFTP_ShellCommands(command)
