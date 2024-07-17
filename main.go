@@ -394,10 +394,46 @@ func deleteSSHProfile(host string) error {
 	return nil
 }
 
+func createConfigFile(filePath string) error {
+	fmt.Println(filePath)
+	file, err := os.Create(filePath)
+	if err != nil {
+		fmt.Println("Error creating file:", err)
+		return err
+	}
+	defer file.Close()
+
+	fmt.Println("The confif file created successfully:", filePath)
+	return nil
+}
+
+func handleExistSignal(err error) {
+	if strings.EqualFold(strings.TrimSpace(err.Error()), "^C") {
+		fmt.Println("Closed the prompt.")
+	} else {
+		fmt.Printf("Prompt failed %v\n", err)
+	}
+}
+
 func getSSHConfigPath() (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get user home directory: %w", err)
+	}
+
+	d := filepath.Join(homeDir, ".ssh")
+	p := filepath.Join(d, "config")
+
+	if _, err := os.Stat(d); err != nil {
+		log.Fatalf("failed to find/access the config file path: %v", d)
+	}
+
+	if _, err := os.Stat(p); err != nil {
+		fmt.Printf("failed to find/access the config file path: %v. Trying to create it...\n", d)
+
+		if err := createConfigFile(p); err != nil {
+			log.Fatalf("failed to create/access the config file path: %v", d)
+		}
 	}
 
 	return filepath.Join(homeDir, ".ssh", "config"), nil
@@ -441,7 +477,7 @@ func processCliArgs() (SSHConfig, *string) {
 	return profile, action
 }
 
-func UIExec(sshConfigPath string) {
+func ExecTheUI(sshConfigPath string) {
 	hosts := getHosts(sshConfigPath)
 	items := getItems(hosts)
 
@@ -469,7 +505,7 @@ func UIExec(sshConfigPath string) {
 	_, chosen, err := prompt.Run()
 
 	if err != nil {
-		fmt.Printf("Prompt failed %v\n", err)
+		handleExistSignal(err)
 		return
 	}
 
@@ -477,7 +513,7 @@ func UIExec(sshConfigPath string) {
 
 	chosenParts := strings.Split(chosen, " ")
 	if len(chosenParts) < 1 {
-		fmt.Println("Invalid chosen item")
+		fmt.Println("Invalid item")
 		return
 	}
 	hostName := chosenParts[0]
@@ -485,7 +521,6 @@ func UIExec(sshConfigPath string) {
 	promptCommand := promptui.Select{
 		Label: "Select Command",
 		Items: []string{"ssh", "sftp", "edit profile", "remove profile"},
-		// Items: []string{"ssh", "sftp"},
 		Templates: &promptui.SelectTemplates{
 			Label:    "{{ . }}?",
 			Active:   "\U0001F534 {{ . | cyan }} (press enter to select)",
@@ -496,7 +531,7 @@ func UIExec(sshConfigPath string) {
 
 	_, command, err := promptCommand.Run()
 	if err != nil {
-		fmt.Printf("Prompt failed %v\n", err)
+		handleExistSignal(err)
 		return
 	}
 
@@ -634,6 +669,6 @@ func main() {
 			}
 		}
 	} else {
-		UIExec(sshConfigPath)
+		ExecTheUI(sshConfigPath)
 	}
 }
