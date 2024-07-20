@@ -55,7 +55,7 @@ func TestUpdateSSHConfig(t *testing.T) {
 			}
 			defer func() { osUserHomeDir = oldUserHomeDir }()
 
-			err := updateSSHConfig(tt.inputConfig)
+			err := updateSSHConfig(configPath, tt.inputConfig)
 			if err != nil {
 				t.Fatalf("updateSSHConfig failed: %v", err)
 			}

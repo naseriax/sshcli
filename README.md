@@ -10,6 +10,10 @@ To compile the code, you must have Golang installed on your system.
 ```
  - ssh and sftp commands must be available in the path environment.
  - In Windows, make sure to run the tool in Windows Terminal app to have a better UX.
+ - To be able to use password authentication, sshpass command must be available in the terminal app.
+ - The passwords.json file acts as a password database since the ssh config file doesn't support storing the passwords. you can add your clear-text passwords to to file and the tool will encrypt them (based on isEncrypted value) after the first execution.
+ - To make the best use of the tool in Windows, run it in the Windows Terminal app.
+
 ```
 ### Steps:
 ```

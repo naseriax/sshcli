@@ -19,6 +19,8 @@ import (
 )
 
 var CompileTime = ""
+var passAuthSupported = true
+var key []byte
 
 // SSHConfig represents the configuration for an SSH host entry
 type SSHConfig struct {
@@ -53,10 +55,11 @@ func doConfigBackup() error {
 	return err
 }
 
-func check_SSH_SFTP_ShellCommands(c string) {
+func checkShellCommands(c string) error {
 	if _, err := exec.LookPath(c); err != nil {
-		log.Fatalf("%v command is not available in the default system shell", c)
+		return fmt.Errorf("%v command is not available in the default system shell", c)
 	}
+	return nil
 }
 
 func getDefaultEditor() string {
@@ -79,7 +82,7 @@ func getDefaultEditor() string {
 	}
 }
 
-func editProfile(profileName, sshConfigPath string) error {
+func editProfile(profileName, configPath string) error {
 	// Create a temporary file
 	tmpfile, err := os.CreateTemp("", "ssh-profile-*.txt")
 	if err != nil {
@@ -88,7 +91,7 @@ func editProfile(profileName, sshConfigPath string) error {
 
 	defer os.Remove(tmpfile.Name())
 
-	hosts := getHosts(sshConfigPath)
+	hosts := getHosts(configPath)
 
 	config := SSHConfig{}
 
@@ -157,7 +160,7 @@ func editProfile(profileName, sshConfigPath string) error {
 
 		if newHost.Host != "" {
 			deleteSSHProfile(newHost.Host)
-			updateSSHConfig(newHost)
+			updateSSHConfig(configPath, newHost)
 
 			if newHost.Host == config.Host {
 				fmt.Printf("Modified profile for %s\n", profileName)
@@ -177,14 +180,7 @@ func editProfile(profileName, sshConfigPath string) error {
 
 // updateSSHConfig updates or adds an SSH host configuration in the ~/.ssh/config file
 // It modifies only the fields provided in the input config, preserving other existing fields
-func updateSSHConfig(config SSHConfig) error {
-	// Get the user's home directory
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("failed to get user home directory: %w", err)
-	}
-
-	configPath := filepath.Join(homeDir, ".ssh", "config")
+func updateSSHConfig(configPath string, config SSHConfig) error {
 
 	// Read existing config file
 	content, err := os.ReadFile(configPath)
@@ -394,8 +390,7 @@ func deleteSSHProfile(host string) error {
 	return nil
 }
 
-func createConfigFile(filePath string) error {
-	fmt.Println(filePath)
+func createFile(filePath string) error {
 	file, err := os.Create(filePath)
 	if err != nil {
 		fmt.Println("Error creating file:", err)
@@ -403,11 +398,11 @@ func createConfigFile(filePath string) error {
 	}
 	defer file.Close()
 
-	fmt.Println("The confif file created successfully:", filePath)
+	fmt.Printf("The %v file created successfully\n", filePath)
 	return nil
 }
 
-func handleExistSignal(err error) {
+func handleExitSignal(err error) {
 	if strings.EqualFold(strings.TrimSpace(err.Error()), "^C") {
 		fmt.Println("Closed the prompt.")
 	} else {
@@ -431,9 +426,18 @@ func getSSHConfigPath() (string, error) {
 	if _, err := os.Stat(p); err != nil {
 		fmt.Printf("failed to find/access the config file path: %v. Trying to create it...\n", d)
 
-		if err := createConfigFile(p); err != nil {
+		if err := createFile(p); err != nil {
 			log.Fatalf("failed to create/access the config file path: %v", d)
 		}
+
+		defaultConfig := SSHConfig{
+			Host:         "vm1",
+			HostName:     "172.16.0.1",
+			User:         "root",
+			Port:         "22",
+			IdentityFile: "~/.ssh/id_rsa",
+		}
+		updateSSHConfig(p, defaultConfig)
 	}
 
 	return filepath.Join(homeDir, ".ssh", "config"), nil
@@ -477,8 +481,9 @@ func processCliArgs() (SSHConfig, *string) {
 	return profile, action
 }
 
-func ExecTheUI(sshConfigPath string) {
-	hosts := getHosts(sshConfigPath)
+func ExecTheUI(configPath string) {
+
+	hosts := getHosts(configPath)
 	items := getItems(hosts)
 
 	searcher := func(input string, index int) bool {
@@ -505,7 +510,7 @@ func ExecTheUI(sshConfigPath string) {
 	_, chosen, err := prompt.Run()
 
 	if err != nil {
-		handleExistSignal(err)
+		handleExitSignal(err)
 		return
 	}
 
@@ -516,6 +521,7 @@ func ExecTheUI(sshConfigPath string) {
 		fmt.Println("Invalid item")
 		return
 	}
+
 	hostName := chosenParts[0]
 
 	promptCommand := promptui.Select{
@@ -531,22 +537,57 @@ func ExecTheUI(sshConfigPath string) {
 
 	_, command, err := promptCommand.Run()
 	if err != nil {
-		handleExistSignal(err)
+		handleExitSignal(err)
 		return
 	}
 
 	if strings.EqualFold(command, "edit profile") {
-		editProfile(hostName, sshConfigPath)
+		editProfile(hostName, configPath)
 
 	} else if strings.EqualFold(command, "remove profile") {
 		deleteSSHProfile(hostName)
 
 	} else {
-		check_SSH_SFTP_ShellCommands(command)
-		cmd := exec.Command(command, hostName)
+
+		// make sure sftp or ssh commands are availble in the shell
+		if err := checkShellCommands(command); err != nil {
+			log.Fatalln(err.Error())
+		}
+
+		cmd := *exec.Command(command, hostName)
+		method := "key"
+		password := `''`
+
+		// Check if sshpass command is availble in the shell, needed for passsword authentication
+		if err := checkShellCommands("sshpass"); err != nil {
+			log.Println("sshpass is not installed, only key authentication is supported")
+			passAuthSupported = false
+
+		} else if passAuthSupported {
+
+			// Find the password in the passwords.json file for the hostname
+			for _, p := range hostPasswords {
+				if p.Host != hostName {
+					continue
+				}
+
+				// Decrypt the password if ecnrypted and store it in password variable
+				password, err = EncryptOrDecryptPassword(p.Host, key, "dec")
+				if err != nil {
+					log.Println(err.Error())
+				}
+			}
+
+			if password != `''` {
+				cmd = *exec.Command("sshpass", "-p", password, command, hostName)
+				method = "password"
+			}
+		}
+
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
+		fmt.Println("Trying:", method, "authentication")
 		cmd.Run()
 	}
 }
@@ -641,9 +682,29 @@ func main() {
 
 	defer customPanicHandler()
 
-	sshConfigPath, err := getSSHConfigPath()
+	defer writeUpdatedPassDbToFile()
+
+	configPath, err := getSSHConfigPath()
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	// Load or generate the encryption key
+	key, err = loadOrGenerateKey()
+	if err != nil {
+		log.Fatalln(err.Error())
+	}
+
+	// Findout and set the full path for the passwords.json file
+	if dataFile, err = updateFilePath(dataFile); err != nil {
+		fmt.Println(err.Error(), "only key authentication is supported.")
+		passAuthSupported = false
+	}
+
+	// Read the JSON file
+	hostPasswords, err = readPassFile()
+	if err != nil {
+		log.Fatalln(err.Error())
 	}
 
 	profile, action := processCliArgs()
@@ -656,7 +717,7 @@ func main() {
 			doConfigBackup()
 			switch *action {
 			case "add":
-				if err := updateSSHConfig(profile); err != nil {
+				if err := updateSSHConfig(configPath, profile); err != nil {
 					fmt.Println("Error adding/updating profile:", err)
 					os.Exit(1)
 				}
@@ -669,6 +730,7 @@ func main() {
 			}
 		}
 	} else {
-		ExecTheUI(sshConfigPath)
+		ExecTheUI(configPath)
 	}
+
 }
