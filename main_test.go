@@ -153,17 +153,17 @@ func TestDeleteSSHProfile(t *testing.T) {
 }
 
 // Helper function to compare string slices
-func stringSlicesEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
+// func stringSlicesEqual(a, b []string) bool {
+// 	if len(a) != len(b) {
+// 		return false
+// 	}
+// 	for i := range a {
+// 		if a[i] != b[i] {
+// 			return false
+// 		}
+// 	}
+// 	return true
+// }
 
 // Mock for os.UserHomeDir
 var osUserHomeDir = os.UserHomeDir

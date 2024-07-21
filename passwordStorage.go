@@ -40,12 +40,12 @@ func loadOrGenerateKey() ([]byte, error) {
 	key = make([]byte, 32) // AES-256 key
 	_, err = rand.Read(key)
 	if err != nil {
-		return key, fmt.Errorf("Error generating key: %v", err)
+		return key, fmt.Errorf("error generating key: %v", err)
 	}
 
 	err = os.WriteFile(keyFile, key, 0600)
 	if err != nil {
-		return key, fmt.Errorf("Error writing key file: %v", err)
+		return key, fmt.Errorf("error writing key file: %v", err)
 	}
 	fmt.Println("A new key has been generated")
 
@@ -96,7 +96,7 @@ func decrypt(ciphertext string, key []byte) (string, error) {
 func updateFilePath(fileName string) (string, error) {
 	execPath, err := os.Executable()
 	if err != nil {
-		return "", fmt.Errorf("Error getting executable path:%v", err)
+		return "", fmt.Errorf("error getting executable path:%v", err)
 	}
 	execDir := filepath.Dir(execPath)
 	absolutepath := filepath.Join(execDir, fileName)
@@ -115,14 +115,14 @@ func readPassFile() (HostPasswords, error) {
 
 	data, err := os.ReadFile(dataFile)
 	if err != nil {
-		return hostPasswords, fmt.Errorf("Error reading the Password database file: %v", err)
+		return hostPasswords, fmt.Errorf("error reading the Password database file: %v", err)
 	}
 
 	if len(data) != 0 {
 		err = json.Unmarshal(data, &hostPasswords)
 		if err != nil {
-			log.Fatalf("Error unmarshalling JSON: %v", err)
-			return hostPasswords, fmt.Errorf("Error unmarshalling JSON: %v", err)
+			log.Fatalf("error unmarshalling JSON: %v", err)
+			return hostPasswords, fmt.Errorf("error unmarshalling JSON: %v", err)
 		}
 	}
 
@@ -147,7 +147,7 @@ func EncryptOrDecryptPassword(host string, key []byte, mode string) (string, err
 				if !v.IsEncrypted {
 					updatedString, err = encrypt([]byte(v.Password), key)
 					if err != nil {
-						err = fmt.Errorf("Error encrypting password: %v", err)
+						err = fmt.Errorf("error encrypting password: %v", err)
 						return `''`, err
 					}
 					if len(original_host) == 0 {
@@ -161,7 +161,7 @@ func EncryptOrDecryptPassword(host string, key []byte, mode string) (string, err
 				if v.IsEncrypted {
 					updatedString, err = decrypt(v.Password, key)
 					if err != nil {
-						err = fmt.Errorf("Error decrypting password: %v", err)
+						err = fmt.Errorf("error decrypting password: %v", err)
 						return `''`, err
 					}
 
@@ -186,12 +186,12 @@ func writeUpdatedPassDbToFile() error {
 
 	encryptedData, err := json.MarshalIndent(hostPasswords, "", "  ")
 	if err != nil {
-		return fmt.Errorf("Error marshalling JSON: %v", err)
+		return fmt.Errorf("error marshalling JSON: %v", err)
 	}
 
 	err = os.WriteFile(dataFile, encryptedData, 0644)
 	if err != nil {
-		return fmt.Errorf("Error writing file: %v", err)
+		return fmt.Errorf("error writing file: %v", err)
 	}
 
 	fmt.Println("Passwords encrypted and stored successfully.")
