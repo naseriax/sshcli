@@ -18,7 +18,9 @@ var keyFile = "encryption.key"
 var dataFile = "passwords.json"
 var hostPasswords HostPasswords
 
-type HostPasswords []struct {
+type HostPasswords []HostPassword
+
+type HostPassword struct {
 	Host        string `json:"host"`
 	Password    string `json:"password"`
 	IsEncrypted bool   `json:"isEncrypted"`
@@ -129,6 +131,30 @@ func readPassFile() (HostPasswords, error) {
 	return hostPasswords, nil
 }
 
+func removeValue(s HostPasswords, host string) HostPasswords {
+	for i, v := range s {
+		if v.Host == host {
+			return append(s[:i], s[i+1:]...)
+		}
+	}
+	return s
+}
+
+func updatePasswordDB(profile SSHConfig, method string) {
+
+	p := HostPassword{
+		Host:        profile.Host,
+		Password:    profile.Password,
+		IsEncrypted: false,
+	}
+
+	if method == "add" {
+		hostPasswords = append(hostPasswords, p)
+	} else if method == "remove" {
+		hostPasswords = removeValue(hostPasswords, p.Host)
+	}
+}
+
 func EncryptOrDecryptPassword(host string, key []byte, mode string) (string, error) {
 
 	var (
@@ -193,8 +219,6 @@ func writeUpdatedPassDbToFile() error {
 	if err != nil {
 		return fmt.Errorf("error writing file: %v", err)
 	}
-
-	fmt.Println("Passwords encrypted and stored successfully.")
 
 	return nil
 }

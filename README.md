@@ -9,9 +9,10 @@ To compile the code, you must have Golang installed on your system.
 ## Requirements to run:
 ```
  - ssh and sftp commands must be available in the path environment.
- - To be able to use password authentication, sshpass command must be available in the terminal app.
+ - sshpass tool can be installed optionally if password authentication is needed.
  - The passwords.json file acts as a password database since the ssh config file doesn't support storing the passwords. you can add your clear-text passwords to to file and the tool will encrypt them (based on isEncrypted value) after the first execution.
- - To make the best use of the tool in Windows, run it in the Windows Terminal app.
+ - Alternatively, ssh passwords can be added to the new or existing profiles using (as an example:) "-p 'PASSWORD' -h VM10" parameters.
+ - To make the best use of the tool in Windows OS, run it in the Windows Terminal app.
 
 ```
 ### Steps:
@@ -44,33 +45,35 @@ Use `/` to bring up the search field to find the host from the list more easily.
 ### Add or update a profile in the ~/.ssh/config file:
 
 ```
-# ./sshcli -action add -host t001 -hostname 10.10.10.10 -key '~/.ssh/id_rsa' -user root -port 22
+# ./sshcli --action add --host t001 --hostname 10.10.10.10 --key '~/.ssh/id_rsa' --user root --password 'PASWWORD123' --port 22
 ```
 
 ### Remove an existing SSH profile from the ~/.ssh/config file:
 
 ```
-# ./sshcli -action remove -host t001
+# ./sshcli --action remove --host t001
 ```
 
 ### For more options, use the help command:
 
 ```
- ~ ➤ sshcli -h
+ ~ ➤ sshcli --help
 Usage of sshcli:
-  -A, --action string
-    	Action to perform: add, remove
-  -H, --host string
-    	Host alias
-  -I, --hostname string
-    	HostName or IP address
-  -K, --key string
-    	IdentityFile path
   -P, --port string
     	Port Number
-  -U, --username string
+  -a, --action string
+    	Action to perform: add, remove
+  -h, --host string
+    	Host alias
+  -i, --hostname string
+    	HostName or IP address
+  -k, --key string
+    	IdentityFile path
+  -p, --password string
+    	SSH password
+  -u, --username string
     	Username
-  -V	prints the compile time
+  -v, --version	prints the compile time (version)
 ```
 
 <img width="619" alt="image" src="https://github.com/user-attachments/assets/4e864ef1-2792-46b4-85fb-6cc4383b245d">

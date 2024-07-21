@@ -18,6 +18,13 @@ import (
 	"github.com/manifoldco/promptui"
 )
 
+const (
+	red         = "\033[31m"
+	green       = "\033[32m"
+	reset       = "\033[0m"
+	pinkonbrown = "\033[38;2;255;82;197;48;2;155;106;0m"
+)
+
 var CompileTime = ""
 var passAuthSupported = true
 var key []byte
@@ -29,6 +36,7 @@ type SSHConfig struct {
 	User         string
 	Port         string
 	IdentityFile string
+	Password     string
 }
 
 func doConfigBackup() error {
@@ -445,24 +453,28 @@ func getSSHConfigPath() (string, error) {
 
 func processCliArgs() (SSHConfig, *string) {
 	action := flag.String("action", "", "Action to perform: add, remove")
-	flag.StringVar(action, "A", "", "Action to perform: add, remove")
+	flag.StringVar(action, "a", "", "Action to perform: add, remove")
 
 	host := flag.String("host", "", "Host alias")
-	flag.StringVar(host, "H", "", "Host alias")
+	flag.StringVar(host, "h", "", "Host alias")
 
 	hostname := flag.String("hostname", "", "HostName or IP address")
-	flag.StringVar(hostname, "I", "", "HostName or IP address")
+	flag.StringVar(hostname, "i", "", "HostName or IP address")
+
+	password := flag.String("password", "", "SSH password")
+	flag.StringVar(password, "p", "", "SSH password")
 
 	username := flag.String("username", "", "Username")
-	flag.StringVar(username, "U", "", "Username")
+	flag.StringVar(username, "u", "", "Username")
 
 	port := flag.String("port", "", "Port Number")
 	flag.StringVar(port, "P", "", "Port Number")
 
 	identityFile := flag.String("key", "", "IdentityFile path")
-	flag.StringVar(identityFile, "K", "", "IdentityFile path")
+	flag.StringVar(identityFile, "k", "", "IdentityFile path")
 
-	version := flag.Bool("V", false, "prints the compile time")
+	version := flag.Bool("version", false, "prints the compile time (version)")
+	flag.BoolVar(version, "v", false, "prints the compile time (version)")
 
 	flag.Parse()
 
@@ -473,6 +485,7 @@ func processCliArgs() (SSHConfig, *string) {
 	profile := SSHConfig{
 		Host:         *host,
 		HostName:     *hostname,
+		Password:     *password,
 		User:         *username,
 		Port:         *port,
 		IdentityFile: *identityFile,
@@ -526,7 +539,7 @@ func ExecTheUI(configPath string) {
 
 	promptCommand := promptui.Select{
 		Label: "Select Command",
-		Items: []string{"ssh", "sftp", "edit profile", "remove profile"},
+		Items: []string{"ssh", "sftp", "Edit Profile", "Remove Profile"},
 		Templates: &promptui.SelectTemplates{
 			Label:    "{{ . }}?",
 			Active:   "\U0001F534 {{ . | cyan }} (press enter to select)",
@@ -541,10 +554,10 @@ func ExecTheUI(configPath string) {
 		return
 	}
 
-	if strings.EqualFold(command, "edit profile") {
+	if strings.EqualFold(command, "Edit profile") {
 		editProfile(hostName, configPath)
 
-	} else if strings.EqualFold(command, "remove profile") {
+	} else if strings.EqualFold(command, "Remove profile") {
 		deleteSSHProfile(hostName)
 
 	} else {
@@ -644,9 +657,38 @@ func getHosts(sshConfigPath string) []SSHConfig {
 
 func getItems(hosts []SSHConfig) []string {
 	items := make([]string, len(hosts))
-	for i, host := range hosts {
-		items[i] = fmt.Sprintf("%s --> %s@%s", host.Host, host.User, host.HostName)
+
+	maxHostLen := 1
+	maxUserLen := 1
+
+	for _, host := range hosts {
+
+		if len(host.Host) > maxHostLen {
+			maxHostLen = len(host.Host)
+		}
+
+		if len(host.User) > maxUserLen {
+			maxUserLen = len(host.User)
+		}
 	}
+
+	maxHostLen += 1
+	maxUserLen += 1
+
+	for i, host := range hosts {
+
+		if len(host.HostName) > 0 && len(host.User) > 0 && len(host.Port) > 0 && host.Port != "22" {
+			items[i] = fmt.Sprintf("%-*s %v>%v %-*s%v@%v %s -p %v", maxHostLen, host.Host, green, reset, maxUserLen, host.User, red, reset, host.HostName, host.Port)
+		} else if len(host.HostName) > 0 && len(host.User) > 0 {
+			items[i] = fmt.Sprintf("%-*s %v>%v %-*s%v@%v %s", maxHostLen, host.Host, green, reset, maxUserLen, host.User, red, reset, host.HostName)
+		} else if len(host.HostName) > 0 {
+			items[i] = fmt.Sprintf("%-*s %v>%v %s", maxHostLen, host.Host, green, reset, host.HostName)
+		} else {
+			items[i] = host.Host
+		}
+
+	}
+
 	return items
 }
 
@@ -721,10 +763,20 @@ func main() {
 					fmt.Println("Error adding/updating profile:", err)
 					os.Exit(1)
 				}
+
+				if profile.Password != "" {
+					updatePasswordDB(profile, "add")
+				}
+
 			case "remove":
 				if err := deleteSSHProfile(profile.Host); err != nil {
 					fmt.Println("Error removing profile:", err)
 				}
+
+				if profile.Password != "" {
+					updatePasswordDB(profile, "remove")
+				}
+
 			default:
 				fmt.Println("Invalid action. Use '-action add' or '-action remove'.")
 			}
