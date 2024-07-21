@@ -140,7 +140,7 @@ func removeValue(s HostPasswords, host string) HostPasswords {
 	return s
 }
 
-func updatePasswordDB(profile SSHConfig, method string) {
+func updatePasswordDB(profile SSHConfig) {
 
 	p := HostPassword{
 		Host:        profile.Host,
@@ -148,11 +148,8 @@ func updatePasswordDB(profile SSHConfig, method string) {
 		IsEncrypted: false,
 	}
 
-	if method == "add" {
-		hostPasswords = append(hostPasswords, p)
-	} else if method == "remove" {
-		hostPasswords = removeValue(hostPasswords, p.Host)
-	}
+	hostPasswords = append(hostPasswords, p)
+
 }
 
 func EncryptOrDecryptPassword(host string, key []byte, mode string) (string, error) {

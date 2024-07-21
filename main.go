@@ -395,6 +395,8 @@ func deleteSSHProfile(host string) error {
 		return fmt.Errorf("failed to write SSH config file: %w", err)
 	}
 
+	hostPasswords = removeValue(hostPasswords, host)
+
 	return nil
 }
 
@@ -527,7 +529,7 @@ func ExecTheUI(configPath string) {
 		return
 	}
 
-	fmt.Printf("You chose %q\n", chosen)
+	// fmt.Printf("You chose %q\n", chosen)
 
 	chosenParts := strings.Split(chosen, " ")
 	if len(chosenParts) < 1 {
@@ -765,7 +767,7 @@ func main() {
 				}
 
 				if profile.Password != "" {
-					updatePasswordDB(profile, "add")
+					updatePasswordDB(profile)
 				}
 
 			case "remove":
@@ -773,9 +775,7 @@ func main() {
 					fmt.Println("Error removing profile:", err)
 				}
 
-				if profile.Password != "" {
-					updatePasswordDB(profile, "remove")
-				}
+				hostPasswords = removeValue(hostPasswords, profile.Host)
 
 			default:
 				fmt.Println("Invalid action. Use '-action add' or '-action remove'.")

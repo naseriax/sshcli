@@ -2,14 +2,10 @@ Host *
     IdentityFile ~/.ssh/id_rsa
     StrictHostKeyChecking no
     UserKnownHostsFile /dev/null
-    User root
 
 Host vm1
-    KexAlgorithms +diffie-hellman-group1-sha1
-    HostKeyAlgorithms = +ssh-rsa
-    PubkeyAcceptedAlgorithms = +ssh-rsa
-    Ciphers +aes128-cbc,3des-cbc
     HostName 192.168.1.1
+    User root
 
 Host vm2
     User user1
