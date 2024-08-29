@@ -90,6 +90,18 @@ func getDefaultEditor() string {
 	}
 }
 
+func extractIP(profileName, configPath string) (string, error) {
+	hosts := getHosts(configPath)
+
+	for _, h := range hosts {
+		if h.Host == profileName {
+			return h.HostName, nil
+		}
+	}
+
+	return "", fmt.Errorf("ip address not found for the host " + profileName)
+}
+
 func editProfile(profileName, configPath string) error {
 	// Create a temporary file
 	tmpfile, err := os.CreateTemp("", "ssh-profile-*.txt")
@@ -578,7 +590,7 @@ func ExecTheUI(configPath string) {
 
 	promptCommand := promptui.Select{
 		Label: "Select Command",
-		Items: []string{"ssh", "sftp", "Edit Profile", "Remove Profile"},
+		Items: []string{"ssh", "sftp", "ping", "Edit Profile", "Remove Profile"},
 		Templates: &promptui.SelectTemplates{
 			Label:    "{{ . }}?",
 			Active:   "\U0001F534 {{ . | cyan }} (press enter to select)",
@@ -598,6 +610,17 @@ func ExecTheUI(configPath string) {
 
 	} else if strings.EqualFold(command, "Remove profile") {
 		deleteSSHProfile(hostName)
+
+	} else if strings.EqualFold(command, "ping") {
+		ipv4, err := extractIP(hostName, configPath)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		cmd := *exec.Command(command, ipv4)
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		cmd.Run()
 
 	} else {
 
