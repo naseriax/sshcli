@@ -445,38 +445,73 @@ func getSSHConfigPath() (string, error) {
 			HostName:     "172.16.0.1",
 			User:         "root",
 			Port:         "22",
-			IdentityFile: "~/.ssh/id_rsa",
+			IdentityFile: filepath.Join(d, "id_rsa"),
 		}
+
 		updateSSHConfig(p, defaultConfig)
 	}
 
 	return filepath.Join(homeDir, ".ssh", "config"), nil
 }
 
+func expandWindowsPath(path string) string {
+	for _, env := range os.Environ() {
+		parts := strings.SplitN(env, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		name, value := parts[0], parts[1]
+		path = strings.ReplaceAll(path, "%"+name+"%", value)
+	}
+	return path
+}
+
+func fixKeyPath(keyPath string) string {
+	if runtime.GOOS == "windows" {
+		if strings.Contains(keyPath, "/") && strings.Contains(keyPath, `\`) {
+			keyPath = strings.ReplaceAll(keyPath, "/", "")
+		} else if strings.Contains(keyPath, "/") {
+			keyPath = strings.ReplaceAll(keyPath, "/", `\`)
+		}
+
+		keyPath = strings.ReplaceAll(keyPath, "~", "%USERPROFILE%")
+
+	} else {
+		if strings.Contains(keyPath, "/") && strings.Contains(keyPath, `\`) {
+			keyPath = strings.ReplaceAll(keyPath, `\`, "")
+		} else if strings.Contains(keyPath, `\`) {
+			keyPath = strings.ReplaceAll(keyPath, `\`, `/`)
+		}
+
+	}
+
+	keyPath = filepath.Clean(keyPath)
+
+	if runtime.GOOS == "windows" {
+		keyPath = expandWindowsPath(keyPath)
+	}
+	fmt.Println(keyPath)
+
+	return keyPath
+
+}
+
 func processCliArgs() (SSHConfig, *string) {
 	action := flag.String("action", "", "Action to perform: add, remove")
-	flag.StringVar(action, "a", "", "Action to perform: add, remove")
 
 	host := flag.String("host", "", "Host alias")
-	flag.StringVar(host, "h", "", "Host alias")
 
 	hostname := flag.String("hostname", "", "HostName or IP address")
-	flag.StringVar(hostname, "i", "", "HostName or IP address")
 
 	password := flag.String("password", "", "SSH password")
-	flag.StringVar(password, "p", "", "SSH password")
 
 	username := flag.String("username", "", "Username")
-	flag.StringVar(username, "u", "", "Username")
 
 	port := flag.String("port", "", "Port Number")
-	flag.StringVar(port, "P", "", "Port Number")
 
 	identityFile := flag.String("key", "", "IdentityFile path")
-	flag.StringVar(identityFile, "k", "", "IdentityFile path")
 
 	version := flag.Bool("version", false, "prints the compile time (version)")
-	flag.BoolVar(version, "v", false, "prints the compile time (version)")
 
 	flag.Parse()
 
@@ -492,6 +527,8 @@ func processCliArgs() (SSHConfig, *string) {
 		Port:         *port,
 		IdentityFile: *identityFile,
 	}
+	cleanPath := fixKeyPath(profile.IdentityFile)
+	profile.IdentityFile = cleanPath
 
 	return profile, action
 }
@@ -784,5 +821,4 @@ func main() {
 	} else {
 		ExecTheUI(configPath)
 	}
-
 }

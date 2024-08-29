@@ -11,7 +11,7 @@ To compile the code, you must have Golang installed on your system.
  - ssh and sftp commands must be available in the path environment.
  - sshpass tool can be installed optionally if password authentication is needed.
  - The passwords.json file acts as a password database since the ssh config file doesn't support storing the passwords. you can add your clear-text passwords to to file and the tool will encrypt them (based on isEncrypted value) after the first execution.
- - Alternatively, ssh passwords can be added to the new or existing profiles using (as an example:) "-p 'PASSWORD' -h VM10" parameters.
+ - Alternatively, ssh passwords can be added to the new or existing profiles using (as an example:) "--password 'PASSWORD' -host VM10" parameters.
  - To make the best use of the tool in Windows OS, run it in the Windows Terminal app.
 
 ```
@@ -59,21 +59,21 @@ Use `/` to bring up the search field to find the host from the list more easily.
 ```
  ~ ➤ sshcli --help
 Usage of sshcli:
-  -P, --port string
+  --port string
     	Port Number
-  -a, --action string
+  --action string
     	Action to perform: add, remove
-  -h, --host string
+  --host string
     	Host alias
-  -i, --hostname string
+  --hostname string
     	HostName or IP address
-  -k, --key string
+  --key string
     	IdentityFile path
-  -p, --password string
+  --password string
     	SSH password
-  -u, --username string
+  --username string
     	Username
-  -v, --version	prints the compile time (version)
+  --version	prints the compile time (version)
 ```
 
 <img width="619" alt="image" src="https://github.com/user-attachments/assets/4e864ef1-2792-46b4-85fb-6cc4383b245d">
