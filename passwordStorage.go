@@ -96,19 +96,26 @@ func decrypt(ciphertext string, key []byte) (string, error) {
 }
 
 func updateFilePath(fileName string) (string, error) {
-	execPath, err := os.Executable()
+	// execPath, err := os.Executable()
+
+	// if err != nil {
+	// 	return "", fmt.Errorf("error getting executable path:%v", err)
+	// }
+	// execDir := filepath.Dir(execPath)
+	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("error getting executable path:%v", err)
+		return "", fmt.Errorf("failed to get user home directory: %w", err)
 	}
-	execDir := filepath.Dir(execPath)
-	absolutepath := filepath.Join(execDir, fileName)
+
+	d := filepath.Join(homeDir, ".ssh")
+	absolutepath := filepath.Join(d, fileName)
 	return absolutepath, nil
 }
 
 func readPassFile() (HostPasswords, error) {
 
 	if _, err := os.Stat(dataFile); err != nil {
-		fmt.Printf("failed to find/access the passwords database file: %v. Trying to create it...\n", dataFile)
+		fmt.Printf("It seems no password database file was created before, so here is one: %v. Trying to create it...\n", dataFile)
 
 		if err := createFile(dataFile); err != nil {
 			log.Fatalf("failed to create/access the password database file: %v", dataFile)

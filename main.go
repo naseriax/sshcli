@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"sort"
+	"sshcli/pkgs/sftp_ui"
 	"strings"
 
 	"github.com/manifoldco/promptui"
@@ -90,16 +91,17 @@ func getDefaultEditor() string {
 	}
 }
 
-func extractIP(profileName, configPath string) (string, error) {
+func extractHost(profileName, configPath string) (SSHConfig, error) {
+	c := SSHConfig{}
 	hosts := getHosts(configPath)
 
 	for _, h := range hosts {
 		if h.Host == profileName {
-			return h.HostName, nil
+			return h, nil
 		}
 	}
 
-	return "", fmt.Errorf("ip address not found for the host " + profileName)
+	return c, fmt.Errorf("failed to find the profile in the config file")
 }
 
 func editProfile(profileName, configPath string) error {
@@ -502,7 +504,6 @@ func fixKeyPath(keyPath string) string {
 	if runtime.GOOS == "windows" {
 		keyPath = expandWindowsPath(keyPath)
 	}
-	fmt.Println(keyPath)
 
 	return keyPath
 
@@ -539,10 +540,20 @@ func processCliArgs() (SSHConfig, *string) {
 		Port:         *port,
 		IdentityFile: *identityFile,
 	}
-	cleanPath := fixKeyPath(profile.IdentityFile)
-	profile.IdentityFile = cleanPath
+
+	if len(profile.IdentityFile) > 0 {
+		cleanPath := fixKeyPath(profile.IdentityFile)
+		profile.IdentityFile = cleanPath
+	}
 
 	return profile, action
+}
+
+type FileNode struct {
+	Name     string
+	IsDir    bool
+	Children []*FileNode
+	Parent   *FileNode // Add this line
 }
 
 func ExecTheUI(configPath string) {
@@ -590,7 +601,7 @@ func ExecTheUI(configPath string) {
 
 	promptCommand := promptui.Select{
 		Label: "Select Command",
-		Items: []string{"ssh", "sftp", "ping", "Edit Profile", "Remove Profile"},
+		Items: []string{"ssh", "sftp (os native)", "sftp (text UI)", "ping", "Edit Profile", "Remove Profile"},
 		Templates: &promptui.SelectTemplates{
 			Label:    "{{ . }}?",
 			Active:   "\U0001F534 {{ . | cyan }} (press enter to select)",
@@ -612,17 +623,34 @@ func ExecTheUI(configPath string) {
 		deleteSSHProfile(hostName)
 
 	} else if strings.EqualFold(command, "ping") {
-		ipv4, err := extractIP(hostName, configPath)
+		h, err := extractHost(hostName, configPath)
 		if err != nil {
 			log.Fatalln(err)
 		}
-		cmd := *exec.Command(command, ipv4)
+		cmd := *exec.Command(command, h.HostName)
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		cmd.Run()
+	} else if strings.EqualFold(command, "sftp (text UI)") {
+		h, err := extractHost(hostName, configPath)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		if h.Port == "" {
+			h.Port = "22"
+		}
+		if strings.HasPrefix(h.IdentityFile, "~") {
+			homeDir, _ := os.UserHomeDir()
+			h.IdentityFile = strings.Replace(h.IdentityFile, "~", homeDir, -1)
+		}
+
+		sftp_ui.INIT_SFTP(h.HostName, h.User, h.Password, h.Port, h.IdentityFile)
 
 	} else {
+		if strings.EqualFold(command, "sftp (os native)") {
+			command = "sftp"
+		}
 
 		// make sure sftp or ssh commands are availble in the shell
 		if err := checkShellCommands(command); err != nil {
