@@ -24,6 +24,26 @@ type FileSystem struct {
 	sftpClient  *sftp.Client
 }
 
+const (
+	numWorkers = 16
+)
+
+type AtomicInt64 struct {
+	value int64
+}
+
+func (a *AtomicInt64) Add(delta int64) int64 {
+	return atomic.AddInt64(&a.value, delta)
+}
+
+func (a *AtomicInt64) Load() int64 {
+	return atomic.LoadInt64(&a.value)
+}
+
+func (a *AtomicInt64) Store(val int64) {
+	atomic.StoreInt64(&a.value, val)
+}
+
 func NewFileSystem(isRemote bool, sftpClient *sftp.Client) *FileSystem {
 	fs := &FileSystem{
 		currentPath: "/",
@@ -31,7 +51,10 @@ func NewFileSystem(isRemote bool, sftpClient *sftp.Client) *FileSystem {
 		isRemote:    isRemote,
 		sftpClient:  sftpClient,
 	}
-	fs.list.SetBorder(true).SetTitle(fmt.Sprintf("%s File System", getSystemType(isRemote)))
+
+	fs.list.SetSelectedTextColor(tcell.ColorGray)
+
+	fs.list.SetBorder(true).SetTitle(fmt.Sprintf("  %s File System  ", getSystemType(isRemote)))
 	return fs
 }
 
@@ -41,14 +64,14 @@ func addFileItem(list *tview.List, name string, isDir bool, isSymlink bool) {
 	var colorTag string
 	if isSymlink {
 		icon = "🔗"
-		colorTag = "[red]"
+		colorTag = "[cyan]"
 	} else if isDir {
-		icon = "📁"
-		colorTag = "[blue]"
+		icon = "📂"
+		colorTag = "[lightcyan]"
 		suffix = "/"
 	} else {
-		icon = "📄"
-		colorTag = "[green]"
+		icon = "📜"
+		colorTag = "[magenta]"
 	}
 	list.AddItem(fmt.Sprintf("%s%s %s%s", colorTag, icon, name, suffix), "", 0, nil)
 }
@@ -139,12 +162,22 @@ func createSFTPClient(host, user, key, password string) (*sftp.Client, error) {
 	return client, nil
 }
 
-const (
-	bufferSize = 1024 * 1024 * 4 // 4MB buffer
-	numWorkers = 8
-)
+// func computeChunkSizes(filesize int64) []int64 {
+// 	c := []int64{}
+// 	chunkSize := filesize / int64(numWorkers)
+// 	var total int64
+// 	for i := range numWorkers {
+// 		if i < numWorkers-1 {
+// 			c = append(c, chunkSize)
+// 			total += chunkSize
+// 		} else {
+// 			c = append(c, filesize-total)
+// 		}
+// 	}
+// 	return c
+// }
 
-func transferFile(sourceFS, targetFS *FileSystem, filename string, progressBar *tview.TextView, app *tview.Application) {
+func transferFile(sourceFS, targetFS *FileSystem, filename string, progressBar *tview.TextView, app *tview.Application) error {
 	sourcePath := filepath.Join(sourceFS.currentPath, filename)
 	targetPath := filepath.Join(targetFS.currentPath, filename)
 
@@ -152,8 +185,8 @@ func transferFile(sourceFS, targetFS *FileSystem, filename string, progressBar *
 	var targetFile io.WriterAt
 	var err error
 	var fileSize int64
+	var totalWritten int64
 
-	// Open source file and get file size
 	if sourceFS.isRemote {
 		sourceFile, err = sourceFS.sftpClient.Open(sourcePath)
 		if err == nil {
@@ -172,108 +205,107 @@ func transferFile(sourceFS, targetFS *FileSystem, filename string, progressBar *
 		}
 	}
 	if err != nil {
-		log.Printf("Error opening source file: %v", err)
-		updateProgressBar(progressBar, fmt.Sprintf("Error opening source file: %v", err), 0, app, 0)
-		return
+		return fmt.Errorf("error opening source file: %v", err)
 	}
 	defer sourceFile.(io.Closer).Close()
 
 	// Create target file
 	if targetFS.isRemote {
 		targetFile, err = targetFS.sftpClient.Create(targetPath)
+
 	} else {
 		targetFile, err = os.Create(targetPath)
 	}
 	if err != nil {
-		log.Printf("Error creating target file: %v", err)
-		updateProgressBar(progressBar, fmt.Sprintf("Error creating target file: %v", err), 0, app, 0)
-		return
+		return fmt.Errorf("error creating target file: %v", err)
 	}
 	defer targetFile.(io.Closer).Close()
 
-	// Perform file transfer with progress
-	updateProgressBar(progressBar, "Transferring file", 0, app, 0)
+	spinIndex := 0
 
-	var totalWritten int64
-	spinnerIndex := 0
+	updateProgress := func() {
+		progress := float64(totalWritten) / float64(fileSize) * 100
+		updateProgressBar(progressBar, "  Transferring", int(progress), app, spinIndex, filename)
+	}
 
 	// Use a ticker to update the progress bar less frequently
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
-	// Use a separate goroutine to update the progress
-	var wg sync.WaitGroup
-	wg.Add(1)
+	// Progress update goroutine
 	go func() {
-		defer wg.Done()
-		for {
-			select {
-			case <-ticker.C:
-				progress := float64(totalWritten) / float64(fileSize) * 100
-				updateProgressBar(progressBar, "Transferring", int(progress), app, spinnerIndex)
-				spinnerIndex = (spinnerIndex + 1) % 4
-			case <-time.After(1 * time.Second):
-				// Exit if no update for 1 second
-				return
+		for range ticker.C {
+			spinIndex += 1
+			if spinIndex > 9 {
+				spinIndex = 0
 			}
+			updateProgress()
 		}
 	}()
 
-	// Parallel transfer
-	chunkSize := fileSize / int64(numWorkers)
-	if chunkSize < bufferSize {
-		chunkSize = bufferSize
+	var wg sync.WaitGroup
+	chunkSize := int(fileSize) / numWorkers
+	if fileSize%int64(numWorkers) != 0 {
+		chunkSize++ // Adjust the chunk size to ensure the remainder is handled
 	}
 
-	var transferWg sync.WaitGroup
+	errChan := make(chan error, numWorkers) // To capture any errors from goroutines
+	progressChan := make(chan int64, numWorkers)
+	defer close(errChan)
+	defer close(progressChan)
+	worker := func(workerIdx int) {
+		defer wg.Done()
+
+		// Calculate the offset and size for this worker
+		offset := int64(workerIdx) * int64(chunkSize)
+		length := chunkSize
+		if offset+int64(chunkSize) > fileSize {
+			length = int(fileSize - offset) // Adjust for the last chunk if it's smaller
+		}
+
+		// Create a buffer to hold the chunk data
+		buffer := make([]byte, length)
+
+		// Read from the source
+		bytesRead, err := sourceFile.ReadAt(buffer, offset)
+		if err != nil && err != io.EOF {
+			errChan <- err
+			return
+		}
+
+		// Write to the target
+		bytesWritten, err := targetFile.WriteAt(buffer[:bytesRead], offset)
+		if err != nil {
+			errChan <- err
+			return
+		}
+
+		atomic.AddInt64(&totalWritten, int64(bytesWritten))
+	}
+
+	// Start workers
 	for i := 0; i < numWorkers; i++ {
-		transferWg.Add(1)
-		go func(workerID int) {
-			defer transferWg.Done()
-			buf := make([]byte, bufferSize)
-			for offset := int64(workerID) * chunkSize; offset < fileSize; offset += int64(numWorkers) * chunkSize {
-				end := offset + chunkSize
-				if end > fileSize {
-					end = fileSize
-				}
-				chunk := int64(end - offset)
-				for chunk > 0 {
-					size := int(chunk)
-					if size > bufferSize {
-						size = bufferSize
-					}
-					n, err := sourceFile.ReadAt(buf[:size], offset)
-					if err != nil && err != io.EOF {
-						log.Printf("Error reading from source: %v", err)
-						return
-					}
-					if n == 0 {
-						break
-					}
-					_, err = targetFile.WriteAt(buf[:n], offset)
-					if err != nil {
-						log.Printf("Error writing to target: %v", err)
-						return
-					}
-					offset += int64(n)
-					chunk -= int64(n)
-					atomic.AddInt64(&totalWritten, int64(n))
-				}
-			}
-		}(i)
+		wg.Add(1)
+		go worker(i)
 	}
 
-	transferWg.Wait()
-	wg.Wait() // Wait for the progress update goroutine to finish
+	wg.Wait()
 
-	updateProgressBar(progressBar, "Transfer completed", 100, app, 0)
+	select {
+	case err := <-errChan:
+		return err
+	default:
+	}
 
-	// Update file lists after transfer
+	updateProgress()
+
 	sourceFS.updateList()
 	targetFS.updateList()
+	progressBar.SetText(fmt.Sprintf("  Transferred: %s", filename))
+	return nil
 }
 
-func updateProgressBar(progressBar *tview.TextView, message string, percentage int, app *tview.Application, spinnerIndex int) {
+func updateProgressBar(progressBar *tview.TextView, message string, percentage int, app *tview.Application, spinnerIndex int, filename string) {
 	app.QueueUpdateDraw(func() {
 		progressBar.Clear()
 
@@ -281,35 +313,52 @@ func updateProgressBar(progressBar *tview.TextView, message string, percentage i
 		_, _, width, _ := progressBar.GetInnerRect()
 
 		// Calculate the width of the progress bar
-		// Subtract 2 for the spinner and colon, and 5 for the percentage display
-		barWidth := width - 30
+		barWidth := width - (50 + len(filename))
 
 		filled := int(float64(barWidth) * float64(percentage) / 100.0)
-		bar := strings.Repeat("[green]#[white]", filled) + strings.Repeat("-", barWidth-filled)
+		bar := strings.Repeat("[cyan]#[white]", filled) + strings.Repeat("-", barWidth-filled)
 
-		spinner := []string{"◐", "◓", "◑", "◒"}
-		spinnerChar := spinner[spinnerIndex]
+		spinner := []string{`⠋`, `⠙`, `⠹`, `⠸`, `⠼`, `⠴`, `⠦`, `⠧`, `⠇`, `⠏`}
+		// spinner := []string{`◜`, `◝`, `◞`, `◟`}
+		dancingString := ""
+		for range spinner {
+			dancingString += spinner[spinnerIndex]
+			spinnerIndex += 1
+			if spinnerIndex >= len(spinner)-1 {
+				spinnerIndex = 0
+			}
+		}
 
-		spinners := strings.Repeat(spinnerChar, numWorkers)
-
-		// Format the progress bar with color and spinner
-		text := fmt.Sprintf("%s: [green]%s[white][%s] %3d%%",
+		text := fmt.Sprintf("%s: [lightred]%s[white][%s] %3d%% (%s)",
 			message,
-			spinners,
+			dancingString,
 			bar,
-			percentage)
+			percentage,
+			filename)
 
 		progressBar.SetText(text)
 	})
 }
 
 func INIT_SFTP(host, user, password, port, key string) {
-	// SFTP server credentials
+	file, err := os.OpenFile("app.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer file.Close()
 
+	// Set the log output to the file
+	log.SetOutput(file)
+
+	// Optional: log date-time, filename, and line number
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+
+	// SFTP server credentials
 	sftpClient, err := createSFTPClient(host+":"+port, user, key, password)
 	if err != nil {
 		log.Fatalf("Failed to create SFTP client: %v", err)
 	}
+
 	defer sftpClient.Close()
 
 	app := tview.NewApplication()
@@ -326,6 +375,8 @@ func INIT_SFTP(host, user, password, port, key string) {
 		SetWrap(false).
 		SetTextAlign(tview.AlignLeft)
 
+	// progressBar.SetBorder(true)
+
 	mainFlex := tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(flex, 0, 1, true).
@@ -334,8 +385,11 @@ func INIT_SFTP(host, user, password, port, key string) {
 	localFS.updateList()
 	remoteFS.updateList()
 
+	// Initial view (rootfs) has been created. Now it's waiting for the user interaction:
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
+
+		// On Tab press, switch the focus between local and remote panes.
 		case tcell.KeyTab:
 			if app.GetFocus() == localFS.list {
 				app.SetFocus(remoteFS.list)
@@ -343,10 +397,13 @@ func INIT_SFTP(host, user, password, port, key string) {
 				app.SetFocus(localFS.list)
 			}
 			return nil
+
+		// on Enter press, if it's a file, initiate transfer. if it's a folder, go in
 		case tcell.KeyEnter:
 			currentList := app.GetFocus().(*tview.List)
 			currentFS := localFS
 			targetFS := remoteFS
+
 			if currentList == remoteFS.list {
 				currentFS = remoteFS
 				targetFS = localFS
@@ -355,11 +412,13 @@ func INIT_SFTP(host, user, password, port, key string) {
 			selectedItem := currentList.GetCurrentItem()
 			selectedPath := ""
 
+			//If the Entered items is the first one (..), move 1 level back
 			if selectedItem == 0 {
-				// Go to parent directory
 				parentDir := filepath.Dir(currentFS.currentPath)
 				currentFS.navigateTo(parentDir)
+
 			} else {
+				//Extract the file/folder name without colottags and emojis ==> selectedPath
 				selectedText, _ := currentList.GetItemText(selectedItem)
 				if string(selectedText[0]) == "[" {
 					leadSpace := strings.Index(selectedText, " ")
@@ -368,8 +427,8 @@ func INIT_SFTP(host, user, password, port, key string) {
 					selectedPath = selectedText
 				}
 
+				// if the item has "/" at the end, it's a folder.
 				if strings.HasSuffix(selectedPath, "/") {
-					// Navigate into directory
 					newPath := filepath.Join(currentFS.currentPath, strings.TrimSuffix(selectedPath, "/"))
 					currentFS.navigateTo(newPath)
 				} else {
