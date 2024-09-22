@@ -645,7 +645,7 @@ func ExecTheUI(configPath string) {
 			h.IdentityFile = strings.Replace(h.IdentityFile, "~", homeDir, -1)
 		}
 
-		sftp_ui.INIT_SFTP(h.HostName, h.User, h.Password, h.Port, h.IdentityFile)
+		sftp_ui.INIT_SFTP(h.Host, h.HostName, h.User, h.Password, h.Port, h.IdentityFile)
 
 	} else {
 		if strings.EqualFold(command, "sftp (os native)") {
@@ -872,4 +872,5 @@ func main() {
 	} else {
 		ExecTheUI(configPath)
 	}
+
 }

@@ -3,6 +3,7 @@ module sshcli
 go 1.23.1
 
 require (
+	github.com/creack/pty v1.1.23
 	github.com/gdamore/tcell/v2 v2.7.4
 	github.com/manifoldco/promptui v0.9.0
 	github.com/pkg/sftp v1.13.6
