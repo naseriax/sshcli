@@ -812,7 +812,7 @@ func removePaths(stack []byte) []byte {
 
 func main() {
 
-	defer customPanicHandler()
+	// defer customPanicHandler()
 
 	defer writeUpdatedPassDbToFile()
 

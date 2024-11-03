@@ -220,7 +220,7 @@ func sftpTransfer(remote, localFile, remoteFile, direction string, currentProgre
 
 	_, err = ptmx.Write([]byte(fmt.Sprintf("%s %s %s\n", direction, localFile, remoteFile)))
 	if err != nil {
-		return fmt.Errorf("failed to send put command: %v", err)
+		return fmt.Errorf("failed to send %s command: %v", direction, err)
 	}
 	<-done
 	_, err = ptmx.Write([]byte("exit\n"))
@@ -234,13 +234,12 @@ func sftpTransfer(remote, localFile, remoteFile, direction string, currentProgre
 	return nil
 }
 
-func transferFile(hostId string, sourceFS, targetFS *FileSystem, filename string, progressBar *tview.TextView, app *tview.Application) error {
+func transferFile(hostId string, sourceFS, targetFS *FileSystem, filename string, progressBar *tview.TextView, app *tview.Application, flex_pbars *tview.Flex) error {
 	sourcePath := filepath.Join(sourceFS.currentPath, filename)
 	targetPath := filepath.Join(targetFS.currentPath, filename)
 
 	var (
 		currentProgress string
-		t               time.Duration
 		spinIndex       = 0
 	)
 
@@ -248,8 +247,7 @@ func transferFile(hostId string, sourceFS, targetFS *FileSystem, filename string
 		updateProgressBar(progressBar, "  Transferring", currentProgress, app, spinIndex, filename)
 	}
 
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
+	ticker := time.NewTicker(100 * time.Millisecond)
 
 	go func() {
 		for range ticker.C {
@@ -272,15 +270,18 @@ func transferFile(hostId string, sourceFS, targetFS *FileSystem, filename string
 		return err
 	}
 
-	updateProgress()
+	ticker.Stop()
 
 	app.QueueUpdateDraw(func() {
 		progressBar.Clear()
-		progressBar.SetText(fmt.Sprintf("  Transferred: [%s] in %s", filename, t))
+		progressBar.SetText(fmt.Sprintf("  Transferred: [%s]", filename))
 	})
 
 	sourceFS.updateList()
 	targetFS.updateList()
+
+	flex_pbars.RemoveItem(progressBar)
+
 	return nil
 }
 
@@ -294,7 +295,6 @@ func updateProgressBar(progressBar *tview.TextView, message, currentProgress str
 		progressSplit := strings.Fields(currentProgress)
 
 		if len(progressSplit) < 3 {
-			log.Println(currentProgress)
 			return
 		}
 
@@ -303,8 +303,14 @@ func updateProgressBar(progressBar *tview.TextView, message, currentProgress str
 			return
 		}
 
-		num_int, _ := strconv.Atoi(num)
-		filled := int(float64(barWidth) * float64(num_int) / 100.0)
+		var filled int
+		num_int, err := strconv.Atoi(num)
+		if err != nil {
+			filled = 1
+		} else {
+			filled = int(float64(barWidth) * float64(num_int) / 100.0)
+		}
+
 		bar := strings.Repeat("[cyan]#[white]", filled) + strings.Repeat("-", barWidth-filled)
 
 		spinner := []string{`⠋`, `⠙`, `⠹`, `⠸`, `⠼`, `⠴`, `⠦`, `⠧`, `⠇`, `⠏`}
@@ -351,18 +357,13 @@ func INIT_SFTP(hostId, host, user, password, port, key string) {
 		AddItem(localFS.list, 0, 1, true).
 		AddItem(remoteFS.list, 0, 1, false)
 
-	progressBar := tview.NewTextView().
-		SetDynamicColors(true).
-		SetRegions(true).
-		SetWrap(false).
-		SetTextAlign(tview.AlignLeft)
-
-	// progressBar.SetBorder(true)
+	flex_pbar := tview.NewFlex()
+	flex_pbar.SetDirection(tview.FlexRow)
 
 	mainFlex := tview.NewFlex().
 		SetDirection(tview.FlexRow).
-		AddItem(flex, 0, 1, true).
-		AddItem(progressBar, 2, 1, false) // Keep it at 2 rows for better visibility
+		AddItem(flex, 0, 5, true).
+		AddItem(flex_pbar, 0, 1, false)
 
 	localFS.updateList()
 	remoteFS.updateList()
@@ -417,7 +418,15 @@ func INIT_SFTP(hostId, host, user, password, port, key string) {
 					currentFS.navigateTo(newPath)
 				} else {
 					// File selected, implement file transfer here
-					go transferFile(hostId, currentFS, targetFS, selectedPath, progressBar, app)
+					p := tview.NewTextView().
+						SetDynamicColors(true).
+						SetRegions(true).
+						SetWrap(false).
+						SetTextAlign(tview.AlignLeft)
+
+					flex_pbar.AddItem(p, 0, 1, false)
+
+					go transferFile(hostId, currentFS, targetFS, selectedPath, p, app, flex_pbar)
 				}
 			}
 
