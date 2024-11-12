@@ -181,12 +181,13 @@ func sftpTransfer(remote, localFile, remoteFile, direction string, currentProgre
 			lineBuffer += string(char)
 			if strings.Contains(lineBuffer, "B/s") {
 				progressSplit := strings.Fields(lineBuffer)
-				progressChan <- progressSplit[3] + " " + progressSplit[4] + " " + progressSplit[5]
-				lineBuffer = ""
-				if progressSplit[3] == "100%" {
+				progressData := progressSplit[len(progressSplit)-3:]
+				progressChan <- strings.Join(progressData, "^")
+				if strings.Contains(lineBuffer, "100%") {
 					time.Sleep(1 * time.Second)
 					break
 				}
+				lineBuffer = ""
 			}
 		}
 		close(progressChan)
@@ -217,10 +218,10 @@ func sftpTransfer(remote, localFile, remoteFile, direction string, currentProgre
 			}
 		}
 	}()
-
-	_, err = ptmx.Write([]byte(fmt.Sprintf("%s %s %s\n", direction, localFile, remoteFile)))
+	_, err = ptmx.Write([]byte(fmt.Sprintf("%s '%s' '%s'\n", direction, localFile, remoteFile)))
 	if err != nil {
 		return fmt.Errorf("failed to send %s command: %v", direction, err)
+
 	}
 	<-done
 	_, err = ptmx.Write([]byte("exit\n"))
@@ -263,6 +264,8 @@ func transferFile(hostId string, sourceFS, targetFS *FileSystem, filename string
 	if sourceFS.isRemote {
 		direction = "get"
 	}
+	sourcePath = filepath.Clean(sourcePath)
+	targetPath = filepath.Clean(targetPath)
 
 	err := sftpTransfer(hostId, sourcePath, targetPath, direction, &currentProgress)
 	if err != nil {
@@ -292,7 +295,7 @@ func updateProgressBar(progressBar *tview.TextView, message, currentProgress str
 		_, _, width, _ := progressBar.GetInnerRect()
 
 		barWidth := width - (40 + len(filename))
-		progressSplit := strings.Fields(currentProgress)
+		progressSplit := strings.Split(currentProgress, "^")
 
 		if len(progressSplit) < 3 {
 			return
@@ -325,7 +328,6 @@ func updateProgressBar(progressBar *tview.TextView, message, currentProgress str
 			num_int,
 			progressSplit[2],
 		)
-
 		progressBar.SetText(text)
 	})
 }
