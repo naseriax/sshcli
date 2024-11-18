@@ -519,7 +519,7 @@ func processCliArgs() (SSHConfig, *string) {
 	hostname := flag.String("hostname", "", "HostName or IP address")
 
 	// password := flag.String("password", "", "SSH password")
-	password := flag.Bool("password", false, "Password prompt")
+	password := flag.Bool("askpass", false, "Password prompt")
 
 	username := flag.String("username", "", "Username")
 
