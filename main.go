@@ -15,8 +15,10 @@ import (
 	"sort"
 	"sshcli/pkgs/sftp_ui"
 	"strings"
+	"syscall"
 
 	"github.com/manifoldco/promptui"
+	"golang.org/x/term"
 )
 
 const (
@@ -516,7 +518,8 @@ func processCliArgs() (SSHConfig, *string) {
 
 	hostname := flag.String("hostname", "", "HostName or IP address")
 
-	password := flag.String("password", "", "SSH password")
+	// password := flag.String("password", "", "SSH password")
+	password := flag.Bool("password", false, "Password prompt")
 
 	username := flag.String("username", "", "Username")
 
@@ -532,10 +535,22 @@ func processCliArgs() (SSHConfig, *string) {
 		fmt.Println("Compile time:", CompileTime)
 	}
 
+	var passString string
+	if *password {
+		fmt.Print("Enter password: ")
+		bytePassword, err := term.ReadPassword(int(syscall.Stdin))
+		fmt.Println()
+		if err != nil {
+			fmt.Println("Error reading password:", err)
+			os.Exit(1)
+		}
+		passString = string(bytePassword)
+	}
+
 	profile := SSHConfig{
 		Host:         *host,
 		HostName:     *hostname,
-		Password:     *password,
+		Password:     passString,
 		User:         *username,
 		Port:         *port,
 		IdentityFile: *identityFile,

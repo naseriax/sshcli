@@ -9,6 +9,7 @@ require (
 	github.com/pkg/sftp v1.13.6
 	github.com/rivo/tview v0.0.0-20240818110301-fd649dbf1223
 	golang.org/x/crypto v0.27.0
+	golang.org/x/term v0.24.0
 )
 
 require (
@@ -19,6 +20,5 @@ require (
 	github.com/mattn/go-runewidth v0.0.15 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	golang.org/x/sys v0.25.0 // indirect
-	golang.org/x/term v0.24.0 // indirect
 	golang.org/x/text v0.18.0 // indirect
 )

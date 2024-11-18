@@ -112,7 +112,7 @@ func (fs *FileSystem) updateList() {
 }
 
 func (fs *FileSystem) navigateTo(path string) {
-	fs.currentPath = path
+	fs.currentPath = strings.ReplaceAll(path, ` `, `\ `)
 	fs.updateList()
 }
 
