@@ -518,7 +518,6 @@ func processCliArgs() (SSHConfig, *string) {
 
 	hostname := flag.String("hostname", "", "HostName or IP address")
 
-	// password := flag.String("password", "", "SSH password")
 	password := flag.Bool("askpass", false, "Password prompt")
 
 	username := flag.String("username", "", "Username")
@@ -648,19 +647,50 @@ func ExecTheUI(configPath string) {
 		cmd.Stderr = os.Stderr
 		cmd.Run()
 	} else if strings.EqualFold(command, "sftp (text UI)") {
+
 		h, err := extractHost(hostName, configPath)
 		if err != nil {
 			log.Fatalln(err)
 		}
+
 		if h.Port == "" {
 			h.Port = "22"
 		}
+
 		if strings.HasPrefix(h.IdentityFile, "~") {
 			homeDir, _ := os.UserHomeDir()
 			h.IdentityFile = strings.Replace(h.IdentityFile, "~", homeDir, -1)
 		}
 
-		sftp_ui.INIT_SFTP(h.Host, h.HostName, h.User, h.Password, h.Port, h.IdentityFile)
+		var password string
+
+		if err := checkShellCommands("sshpass"); err != nil {
+			log.Println("sshpass is not installed, only key authentication is supported")
+		} else {
+
+			// Find the password in the passwords.json file for the hostname
+			for _, p := range hostPasswords {
+
+				if p.Host == hostName {
+					// Decrypt the password if ecnrypted and store it in password variable
+					password, err = EncryptOrDecryptPassword(p.Host, key, "dec")
+					if err != nil {
+						log.Println(err.Error())
+					}
+					break
+				}
+			}
+		}
+
+		err = sftp_ui.INIT_SFTP(h.Host, h.HostName, h.User, password, h.Port, h.IdentityFile)
+		if err != nil {
+			if strings.Contains(err.Error(), "methods [none], no supported methods remain") {
+				fmt.Printf("\n - Can't authenticate to the server. password or key not found. \n\n")
+			} else {
+				fmt.Println(err.Error())
+			}
+			log.Fatalln(err)
+		}
 
 	} else {
 		if strings.EqualFold(command, "sftp (os native)") {
@@ -685,14 +715,13 @@ func ExecTheUI(configPath string) {
 
 			// Find the password in the passwords.json file for the hostname
 			for _, p := range hostPasswords {
-				if p.Host != hostName {
-					continue
-				}
-
-				// Decrypt the password if ecnrypted and store it in password variable
-				password, err = EncryptOrDecryptPassword(p.Host, key, "dec")
-				if err != nil {
-					log.Println(err.Error())
+				if p.Host == hostName {
+					// Decrypt the password if ecnrypted and store it in password variable
+					password, err = EncryptOrDecryptPassword(p.Host, key, "dec")
+					if err != nil {
+						log.Println(err.Error())
+					}
+					break
 				}
 			}
 

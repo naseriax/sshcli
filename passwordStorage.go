@@ -155,8 +155,17 @@ func updatePasswordDB(profile SSHConfig) {
 		IsEncrypted: false,
 	}
 
-	hostPasswords = append(hostPasswords, p)
+	db_clone := HostPasswords{}
 
+	for _, entity := range hostPasswords {
+		if entity.Host != p.Host {
+			db_clone = append(db_clone, entity)
+		}
+	}
+
+	db_clone = append(db_clone, p)
+
+	hostPasswords = db_clone
 }
 
 func EncryptOrDecryptPassword(host string, key []byte, mode string) (string, error) {

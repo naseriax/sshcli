@@ -332,7 +332,7 @@ func updateProgressBar(progressBar *tview.TextView, message, currentProgress str
 	})
 }
 
-func INIT_SFTP(hostId, host, user, password, port, key string) {
+func INIT_SFTP(hostId, host, user, password, port, key string) error {
 
 	file, err := os.OpenFile("sftp.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
@@ -345,7 +345,8 @@ func INIT_SFTP(hostId, host, user, password, port, key string) {
 
 	sftpClient, sshClient, err := opentheGates(host+":"+port, user, key, password)
 	if err != nil {
-		log.Fatalf("Failed to create SFTP client: %v", err)
+		log.Printf("Failed to create SFTP client: %v\n", err)
+		return err
 	}
 
 	defer sshClient.Close()
@@ -438,6 +439,9 @@ func INIT_SFTP(hostId, host, user, password, port, key string) {
 	})
 
 	if err := app.SetRoot(mainFlex, true).EnableMouse(true).Run(); err != nil {
-		log.Fatalf("Error running application: %v", err)
+		log.Printf("Error running application: %v", err)
+		return err
 	}
+
+	return nil
 }
