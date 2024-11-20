@@ -531,7 +531,8 @@ func processCliArgs() (SSHConfig, *string) {
 	flag.Parse()
 
 	if *version {
-		fmt.Println("Compile time:", CompileTime)
+		fmt.Println(CompileTime[1:])
+		os.Exit(0)
 	}
 
 	var passString string
