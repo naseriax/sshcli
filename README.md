@@ -47,7 +47,7 @@ Use `/` to bring up the search field to find the host from the list more easily.
 ### Add or update a profile in the ~/.ssh/config file:
 
 ```
-# ./sshcli --action add --host t001 --hostname 10.10.10.10 --key '~/.ssh/id_rsa' --user root  --port 22 --askpass
+# ./sshcli --action add --host t001 --hostname 10.10.10.10 --key '~/.ssh/id_rsa' --username root  --port 22 --askpass
 Enter Password: 
 ```
 
@@ -60,18 +60,18 @@ Enter Password:
 ### For more options, use the help command:
 
 ```
- ~ ➤ sshcli -h
+ ~ ➤ sshcli -h                          
 Usage of sshcli:
   -action string
-    	Action to perform: add, remove ==> add can be used for both adding and updating
+    	Action to perform: add, remove
+  -askpass
+    	Password prompt
   -host string
     	Host alias
   -hostname string
     	HostName or IP address
   -key string
     	IdentityFile path
-  -askpass                           ==> Thi triggers the secure password prompt
-    	Password prompt
   -port string
     	Port Number
   -username string
