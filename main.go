@@ -685,7 +685,9 @@ func ExecTheUI(configPath string) {
 		err = sftp_ui.INIT_SFTP(h.Host, h.HostName, h.User, password, h.Port, h.IdentityFile)
 		if err != nil {
 			if strings.Contains(err.Error(), "methods [none], no supported methods remain") {
-				fmt.Printf("\n - Can't authenticate to the server. password or key not found. \n\n")
+				fmt.Printf("\n - Can't authenticate to the server. no password or key provided. \n\n")
+			} else if strings.Contains(err.Error(), "methods [none password], no supported methods remain") {
+				fmt.Printf("\n - Can't authenticate to the server. the provided password is wrong and no key provided. \n\n")
 			} else {
 				fmt.Println(err.Error())
 			}
