@@ -616,7 +616,7 @@ func ExecTheUI(configPath string) {
 
 	promptCommand := promptui.Select{
 		Label: "Select Command",
-		Items: []string{"ssh", "sftp (os native)", "sftp (text UI)", "ping", "Edit Profile", "Remove Profile"},
+		Items: []string{"ssh", "sftp (os native)", "sftp (text UI)", "ping", "Edit Profile", "Set Password", "Remove Profile"},
 		Templates: &promptui.SelectTemplates{
 			Label:    "{{ . }}?",
 			Active:   "\U0001F534 {{ . | cyan }} (press enter to select)",
@@ -636,6 +636,27 @@ func ExecTheUI(configPath string) {
 
 	} else if strings.EqualFold(command, "Remove profile") {
 		deleteSSHProfile(hostName)
+
+	} else if strings.EqualFold(command, "Set Password") {
+
+		fmt.Print("\nEnter password: ")
+		bytePassword, err := term.ReadPassword(int(syscall.Stdin))
+		fmt.Println()
+		if err != nil {
+			fmt.Println("Error reading password:", err)
+			os.Exit(1)
+		}
+
+		passString := string(bytePassword)
+
+		profile := SSHConfig{
+			Host:     hostName,
+			Password: passString,
+		}
+
+		updatePasswordDB(profile)
+		writeUpdatedPassDbToFile()
+		fmt.Println("\nPassword has been successfully added to the password database!")
 
 	} else if strings.EqualFold(command, "ping") {
 		h, err := extractHost(hostName, configPath)
@@ -903,6 +924,8 @@ func main() {
 
 				if profile.Password != "" {
 					updatePasswordDB(profile)
+					writeUpdatedPassDbToFile()
+					fmt.Println("\nPassword has been successfully added to the password database!")
 				}
 
 			case "remove":
@@ -919,5 +942,4 @@ func main() {
 	} else {
 		ExecTheUI(configPath)
 	}
-
 }
