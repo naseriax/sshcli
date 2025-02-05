@@ -56,21 +56,28 @@ func NewFileSystem(isRemote bool, sftpClient *sftp.Client, sshClient *ssh.Client
 	return fs
 }
 
-func addFileItem(list *tview.List, name string, isDir bool, isSymlink bool) {
+func addFileItem(list *tview.List, name string, t string) {
 	var suffix = ""
 	var icon string
 	var colorTag string
-	if isSymlink {
-		icon = "🔗"
-		colorTag = "[cyan]"
-	} else if isDir {
-		icon = "📂"
+
+	switch t {
+	case "ld":
+		icon = "🌀🗂️"
 		colorTag = "[lightcyan]"
 		suffix = "/"
-	} else {
-		icon = "📜"
+	case "lf":
+		icon = "🌀📝"
 		colorTag = "[magenta]"
+	case "f":
+		icon = "📝"
+		colorTag = "[magenta]"
+	case "d":
+		icon = "🗂️"
+		colorTag = "[lightcyan]"
+		suffix = "/"
 	}
+
 	list.AddItem(fmt.Sprintf("%s%s %s%s", colorTag, icon, name, suffix), "", 0, nil)
 }
 
@@ -79,6 +86,51 @@ func getSystemType(isRemote bool) string {
 		return "Remote"
 	}
 	return "Local"
+}
+
+func (fs *FileSystem) isItFileOrFolder(fPath string, isRemote bool) string {
+	var err error
+	targetPath := ""
+	var targetInfo os.FileInfo
+	if isRemote {
+		targetPath, err = fs.sftpClient.ReadLink(fPath)
+		if err != nil {
+			log.Printf("Error reading symlink target: %v\n", err)
+			return "l"
+		}
+		if !filepath.IsAbs(targetPath) {
+			targetPath = filepath.Join(filepath.Dir(fPath), targetPath)
+		}
+		targetInfo, err = fs.sftpClient.Stat(targetPath)
+		if err != nil {
+			log.Printf("Error getting target info: %v\n", err)
+			log.Println("The symbolic link may be broken or the target is inaccessible.")
+			return "l"
+		}
+
+	} else {
+		targetPath, err = os.Readlink(fPath)
+		if err != nil {
+			log.Printf("Error reading symlink target: %v\n", err)
+			return "l"
+		}
+		if !filepath.IsAbs(targetPath) {
+			targetPath = filepath.Join(filepath.Dir(fPath), targetPath)
+		}
+		targetInfo, err = os.Stat(targetPath)
+		if err != nil {
+			log.Printf("Error getting target info: %v\n", err)
+			log.Println("The symbolic link may be broken or the target is inaccessible.")
+			return "l"
+		}
+	}
+
+	if targetInfo.IsDir() {
+		return "ld"
+	} else {
+		return "lf"
+	}
+
 }
 
 func (fs *FileSystem) updateList() {
@@ -92,7 +144,20 @@ func (fs *FileSystem) updateList() {
 			return
 		}
 		for _, file := range files {
-			addFileItem(fs.list, file.Name(), file.IsDir(), file.Mode()&os.ModeSymlink != 0)
+
+			t := "d"
+
+			fPath := filepath.Join(fs.currentPath, file.Name())
+
+			if file.Mode()&os.ModeSymlink != 0 {
+				t = fs.isItFileOrFolder(fPath, true)
+			} else {
+				if !file.IsDir() {
+					t = "f"
+				}
+			}
+
+			addFileItem(fs.list, file.Name(), t)
 		}
 	} else {
 		entries, err := os.ReadDir(fs.currentPath)
@@ -101,18 +166,33 @@ func (fs *FileSystem) updateList() {
 			return
 		}
 		for _, entry := range entries {
+			t := "d"
+
+			fPath := filepath.Join(fs.currentPath, entry.Name())
+
 			info, err := entry.Info()
 			if err != nil {
 				log.Printf("Error getting file info: %v", err)
 				continue
 			}
-			addFileItem(fs.list, entry.Name(), entry.IsDir(), info.Mode()&os.ModeSymlink != 0)
+
+			if info.Mode()&os.ModeSymlink != 0 {
+				t = fs.isItFileOrFolder(fPath, false)
+
+			} else {
+				if !entry.IsDir() {
+					t = "f"
+				}
+			}
+
+			addFileItem(fs.list, entry.Name(), t)
 		}
 	}
 }
 
 func (fs *FileSystem) navigateTo(path string) {
-	fs.currentPath = strings.ReplaceAll(path, ` `, `\ `)
+	// fs.currentPath = strings.ReplaceAll(path, ` `, `\ `)
+	fs.currentPath = path
 	fs.updateList()
 }
 
@@ -332,6 +412,24 @@ func updateProgressBar(progressBar *tview.TextView, message, currentProgress str
 	})
 }
 
+func detectItemType(item string) string {
+
+	if strings.Contains(item, "🌀🗂️") {
+		return "ld"
+	}
+
+	if strings.Contains(item, "🌀📝") {
+		return "lf"
+	}
+
+	if strings.Contains(item, "📝") {
+		return "f"
+	}
+
+	return "d"
+
+}
+
 func INIT_SFTP(hostId, host, user, password, port, key string) error {
 
 	file, err := os.OpenFile("sftp.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
@@ -408,6 +506,7 @@ func INIT_SFTP(hostId, host, user, password, port, key string) error {
 			} else {
 				//Extract the file/folder name without colottags and emojis ==> selectedPath
 				selectedText, _ := currentList.GetItemText(selectedItem)
+				itemType := detectItemType(selectedText)
 				if string(selectedText[0]) == "[" {
 					leadSpace := strings.Index(selectedText, " ")
 					selectedPath = strings.TrimSpace(selectedText[leadSpace:])
@@ -416,10 +515,10 @@ func INIT_SFTP(hostId, host, user, password, port, key string) error {
 				}
 
 				// if the item has "/" at the end, it's a folder.
-				if strings.HasSuffix(selectedPath, "/") {
+				if strings.Contains(itemType, "d") {
 					newPath := filepath.Join(currentFS.currentPath, strings.TrimSuffix(selectedPath, "/"))
 					currentFS.navigateTo(newPath)
-				} else {
+				} else if itemType == "f" {
 					// File selected, implement file transfer here
 					p := tview.NewTextView().
 						SetDynamicColors(true).
