@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -133,11 +134,30 @@ func (fs *FileSystem) isItFileOrFolder(fPath string, isRemote bool) string {
 
 }
 
+func SortedFileInfo(l []os.FileInfo) []os.FileInfo {
+	sort.Slice(l, func(i, j int) bool {
+		return strings.ToLower(l[i].Name()) < strings.ToLower(l[j].Name())
+	})
+	return l
+}
+
+func SortedDirEntry(l []os.DirEntry) []os.DirEntry {
+	sort.Slice(l, func(i, j int) bool {
+		return strings.ToLower(l[i].Name()) < strings.ToLower(l[j].Name())
+	})
+	return l
+}
+
 func (fs *FileSystem) updateList() {
+	t := "d"
 	fs.list.Clear()
 	fs.list.AddItem("📁 ..", "Go to parent directory", 0, nil)
 
 	if fs.isRemote {
+		fileList := make([]os.FileInfo, 0)
+		linkDList := make([]os.FileInfo, 0)
+		linkFList := make([]os.FileInfo, 0)
+		folderList := make([]os.FileInfo, 0)
 		files, err := fs.sftpClient.ReadDir(fs.currentPath)
 		if err != nil {
 			log.Printf("Error reading remote directory: %v", err)
@@ -145,28 +165,54 @@ func (fs *FileSystem) updateList() {
 		}
 		for _, file := range files {
 
-			t := "d"
-
 			fPath := filepath.Join(fs.currentPath, file.Name())
-
 			if file.Mode()&os.ModeSymlink != 0 {
 				t = fs.isItFileOrFolder(fPath, true)
 			} else {
-				if !file.IsDir() {
+				if file.IsDir() {
+					t = "d"
+				} else {
 					t = "f"
 				}
 			}
 
-			addFileItem(fs.list, file.Name(), t)
+			switch t {
+			case "f":
+				fileList = append(fileList, file)
+			case "d":
+				folderList = append(folderList, file)
+			case "ld":
+				linkDList = append(linkDList, file)
+			case "lf":
+				linkFList = append(linkFList, file)
+			}
 		}
+
+		for _, f := range SortedFileInfo(linkFList) {
+			addFileItem(fs.list, f.Name(), "lf")
+		}
+		for _, f := range SortedFileInfo(linkDList) {
+			addFileItem(fs.list, f.Name(), "ld")
+		}
+		for _, f := range SortedFileInfo(folderList) {
+			addFileItem(fs.list, f.Name(), "d")
+		}
+		for _, f := range SortedFileInfo(fileList) {
+			addFileItem(fs.list, f.Name(), "f")
+		}
+
 	} else {
+		fileList := make([]os.DirEntry, 0)
+		linkDList := make([]os.DirEntry, 0)
+		linkFList := make([]os.DirEntry, 0)
+		folderList := make([]os.DirEntry, 0)
 		entries, err := os.ReadDir(fs.currentPath)
 		if err != nil {
 			log.Printf("Error reading local directory: %v", err)
 			return
 		}
+
 		for _, entry := range entries {
-			t := "d"
 
 			fPath := filepath.Join(fs.currentPath, entry.Name())
 
@@ -180,18 +226,41 @@ func (fs *FileSystem) updateList() {
 				t = fs.isItFileOrFolder(fPath, false)
 
 			} else {
-				if !entry.IsDir() {
+				if entry.IsDir() {
+					t = "d"
+				} else {
 					t = "f"
 				}
 			}
 
-			addFileItem(fs.list, entry.Name(), t)
+			switch t {
+			case "f":
+				fileList = append(fileList, entry)
+			case "d":
+				folderList = append(folderList, entry)
+			case "ld":
+				linkDList = append(linkDList, entry)
+			case "lf":
+				linkFList = append(linkFList, entry)
+			}
+		}
+
+		for _, f := range SortedDirEntry(linkFList) {
+			addFileItem(fs.list, f.Name(), "lf")
+		}
+		for _, f := range SortedDirEntry(linkDList) {
+			addFileItem(fs.list, f.Name(), "ld")
+		}
+		for _, f := range SortedDirEntry(folderList) {
+			addFileItem(fs.list, f.Name(), "d")
+		}
+		for _, f := range SortedDirEntry(fileList) {
+			addFileItem(fs.list, f.Name(), "f")
 		}
 	}
 }
 
 func (fs *FileSystem) navigateTo(path string) {
-	// fs.currentPath = strings.ReplaceAll(path, ` `, `\ `)
 	fs.currentPath = path
 	fs.updateList()
 }
