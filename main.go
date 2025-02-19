@@ -616,7 +616,8 @@ func ExecTheUI(configPath string) {
 
 	promptCommand := promptui.Select{
 		Label: "Select Command",
-		Items: []string{"ssh", "sftp (os native)", "sftp (text UI)", "ping", "Edit Profile", "Set Password", "Remove Profile"},
+		Size:  35,
+		Items: []string{"ssh", "sftp (os native)", "sftp (text UI)", "Ping", "Edit Profile", "Set Password", "Reveal Password", "Remove Profile"},
 		Templates: &promptui.SelectTemplates{
 			Label:    "{{ . }}?",
 			Active:   "\U0001F534 {{ . | cyan }} (press enter to select)",
@@ -636,6 +637,14 @@ func ExecTheUI(configPath string) {
 
 	} else if strings.EqualFold(command, "Remove profile") {
 		deleteSSHProfile(hostName)
+
+	} else if strings.EqualFold(command, "Reveal Password") {
+		password, err := EncryptOrDecryptPassword(hostName, key, "dec")
+		if err != nil {
+			log.Println(err.Error())
+		}
+		fmt.Println("Password for", hostName, ":", password)
+		os.Exit(0)
 
 	} else if strings.EqualFold(command, "Set Password") {
 

@@ -148,7 +148,31 @@ func SortedDirEntry(l []os.DirEntry) []os.DirEntry {
 	return l
 }
 
+func loadingBar(StopChan chan bool) {
+	// spinner := []string{`⠋`, `⠙`, `⠹`, `⠸`, `⠼`, `⠴`, `⠦`, `⠧`, `⠇`, `⠏`}
+	// spinner := []string{`░`, `▒`, `▓`, `█`}
+	// spinner := []string{`⣾`, `⣽`, `⣻`, `⢿`, `⡿`, `⣟`, `⣯`, `⣷`}
+	spinner := []string{`░░░░`, `▒░░░`, `▓▒░░`, `█▓▒░`, `██▓▒`, `███▓`, `████`}
+	for {
+		select {
+		case <-StopChan:
+			return
+		default:
+			for _, c := range spinner {
+				fmt.Print("\033[H")
+				fmt.Print(c)
+				time.Sleep(80 * time.Millisecond)
+			}
+		}
+	}
+}
+
 func (fs *FileSystem) updateList() {
+
+	StopChan := make(chan bool)
+	go loadingBar(StopChan)
+	defer func() { StopChan <- true }()
+
 	t := "d"
 	fs.list.Clear()
 	fs.list.AddItem("📁 ..", "Go to parent directory", 0, nil)
@@ -167,7 +191,9 @@ func (fs *FileSystem) updateList() {
 
 			fPath := filepath.Join(fs.currentPath, file.Name())
 			if file.Mode()&os.ModeSymlink != 0 {
+
 				t = fs.isItFileOrFolder(fPath, true)
+
 			} else {
 				if file.IsDir() {
 					t = "d"
@@ -258,6 +284,7 @@ func (fs *FileSystem) updateList() {
 			addFileItem(fs.list, f.Name(), "f")
 		}
 	}
+
 }
 
 func (fs *FileSystem) navigateTo(path string) {
