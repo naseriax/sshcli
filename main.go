@@ -675,19 +675,24 @@ func ExecTheUI(configPath string) {
 		cmd.Stderr = os.Stderr
 		cmd.Run()
 	} else if strings.EqualFold(command, "tcping") {
-		port := "22"
-		h, err := extractHost(hostName, configPath)
-		if err != nil {
-			log.Fatalln(err)
+		if err := checkShellCommands(strings.ToLower(command)); err != nil {
+			log.Println("tcping is not installed. install by checking https://github.com/pouriyajamshidi/tcping")
+
+		} else {
+			port := "22"
+			h, err := extractHost(hostName, configPath)
+			if err != nil {
+				log.Fatalln(err)
+			}
+			if h.Port != "" {
+				port = h.Port
+			}
+			cmd := *exec.Command(strings.ToLower(command), h.HostName, port)
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			cmd.Run()
 		}
-		if h.Port != "" {
-			port = h.Port
-		}
-		cmd := *exec.Command(strings.ToLower(command), h.HostName, port)
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		cmd.Run()
 	} else if strings.EqualFold(strings.ToLower(command), "sftp (text UI)") {
 
 		h, err := extractHost(hostName, configPath)
