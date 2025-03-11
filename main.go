@@ -74,9 +74,13 @@ func checkShellCommands(c string) error {
 }
 
 func getDefaultEditor() string {
-	if runtime.GOOS == "windows" {
-		// Check for common CLI editors first
-		editors := []string{"nano", "vim", "notepad"}
+	editors := []string{"vim", "nvim", "vi", "nano"}
+
+	switch runtime.GOOS {
+	case "windows":
+		return "notepad"
+
+	default:
 		for _, editor := range editors {
 			if _, err := exec.LookPath(editor); err == nil {
 				return editor
@@ -84,13 +88,7 @@ func getDefaultEditor() string {
 		}
 	}
 
-	// Fall back to OS-specific defaults
-	switch runtime.GOOS {
-	case "windows":
-		return "notepad"
-	default:
-		return "vi"
-	}
+	return "vi"
 }
 
 func extractHost(profileName, configPath string) (SSHConfig, error) {
@@ -107,7 +105,6 @@ func extractHost(profileName, configPath string) (SSHConfig, error) {
 }
 
 func editProfile(profileName, configPath string) error {
-	// Create a temporary file
 	tmpfile, err := os.CreateTemp("", "ssh-profile-*.txt")
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %v", err)
@@ -617,7 +614,7 @@ func ExecTheUI(configPath string) {
 	promptCommand := promptui.Select{
 		Label: "Select Command",
 		Size:  35,
-		Items: []string{"ssh", "sftp (os native)", "sftp (text UI)", "Ping", "Edit Profile", "Set Password", "Reveal Password", "Remove Profile"},
+		Items: []string{"ssh", "sftp (os native)", "sftp (text UI)", "Ping", "TCPing", "Edit Profile", "Set Password", "Reveal Password", "Remove Profile"},
 		Templates: &promptui.SelectTemplates{
 			Label:    "{{ . }}?",
 			Active:   "\U0001F534 {{ . | cyan }} (press enter to select)",
@@ -672,12 +669,26 @@ func ExecTheUI(configPath string) {
 		if err != nil {
 			log.Fatalln(err)
 		}
-		cmd := *exec.Command(command, h.HostName)
+		cmd := *exec.Command(strings.ToLower(command), h.HostName)
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		cmd.Run()
-	} else if strings.EqualFold(command, "sftp (text UI)") {
+	} else if strings.EqualFold(command, "tcping") {
+		port := "22"
+		h, err := extractHost(hostName, configPath)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		if h.Port != "" {
+			port = h.Port
+		}
+		cmd := *exec.Command(strings.ToLower(command), h.HostName, port)
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		cmd.Run()
+	} else if strings.EqualFold(strings.ToLower(command), "sftp (text UI)") {
 
 		h, err := extractHost(hostName, configPath)
 		if err != nil {
@@ -924,7 +935,7 @@ func main() {
 			return
 		} else {
 			doConfigBackup()
-			switch *action {
+			switch strings.ToLower(*action) {
 			case "add":
 				if err := updateSSHConfig(configPath, profile); err != nil {
 					fmt.Println("Error adding/updating profile:", err)
