@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -28,6 +29,9 @@ const (
 	pinkonbrown = "\033[38;2;255;82;197;48;2;155;106;0m"
 )
 
+var console_file_path = "console.json"
+var consoleConfigs ConsoleConfigs
+
 var CompileTime = ""
 var passAuthSupported = true
 var key []byte
@@ -41,6 +45,25 @@ type SSHConfig struct {
 	IdentityFile string
 	Password     string
 }
+
+type FileNode struct {
+	Name     string
+	IsDir    bool
+	Children []*FileNode
+	Parent   *FileNode
+}
+
+// ConsoleConfig represents the configuration for the Console host entry
+type ConsoleConfig struct {
+	Host     string
+	BaudRate string
+	Device   string
+	Parity   string
+	StopBit  string
+	DataBits string
+}
+
+type ConsoleConfigs []ConsoleConfig
 
 func doConfigBackup() error {
 	configFilePath, err := getSSHConfigPath()
@@ -199,6 +222,98 @@ func editProfile(profileName, configPath string) error {
 	return nil
 }
 
+func editConsoleProfile(profileName string) error {
+	tmpfile, err := os.CreateTemp("", "console-profile-*.txt")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %v", err)
+	}
+
+	defer os.Remove(tmpfile.Name())
+
+	config := ConsoleConfig{}
+
+	for _, h := range consoleConfigs {
+		if h.Host == profileName {
+			config = h
+		}
+	}
+
+	profileContent := generateConsoleHostBlock(config)
+
+	_, err = tmpfile.Write(profileContent)
+	if err != nil {
+		return fmt.Errorf("error writing file: %v", err)
+	}
+
+	if err := tmpfile.Close(); err != nil {
+		return fmt.Errorf("failed to close temp file: %v", err)
+	}
+
+	fileInfoBefore, err := os.Stat(tmpfile.Name())
+	if err != nil {
+		return fmt.Errorf("failed to get file info: %v", err)
+	}
+
+	// Determine the editor to use
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = getDefaultEditor()
+	}
+
+	// Open the editor
+	cmd := exec.Command(editor, tmpfile.Name())
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start editor: %v", err)
+	}
+
+	// Wait for the editor to close
+	if err := cmd.Wait(); err != nil {
+		return fmt.Errorf("editor exited with error: %v", err)
+	}
+
+	fileInfoAfter, err := os.Stat(tmpfile.Name())
+	if err != nil {
+		return fmt.Errorf("failed to get file info after editing: %v", err)
+	}
+
+	if fileInfoAfter.ModTime().After(fileInfoBefore.ModTime()) {
+		// Read the modified content
+
+		c := ConsoleConfig{}
+		newHost, _ := os.ReadFile(tmpfile.Name())
+
+		if len(newHost) != 0 {
+			err = json.Unmarshal(newHost, &c)
+			if err != nil {
+				log.Fatalf("error unmarshalling JSON for consoleConfigs: %v", err)
+			}
+		}
+
+		fmt.Println(c)
+
+		if c.Host != "" {
+			addConsoleConfig(c)
+
+			if c.Host == config.Host {
+				fmt.Printf("Modified profile for %s\n", profileName)
+			} else {
+				fmt.Printf("A new profile with a the name:%s has been added\n", c.Host)
+			}
+		} else {
+			fmt.Printf("The edited file is not valid, hence the profile %s was not modified.\n", profileName)
+		}
+
+	} else {
+		fmt.Printf("Profile %s was not modified.\n", profileName)
+	}
+
+	return nil
+}
+
 // updateSSHConfig updates or adds an SSH host configuration in the ~/.ssh/config file
 // It modifies only the fields provided in the input config, preserving other existing fields
 func updateSSHConfig(configPath string, config SSHConfig) error {
@@ -343,6 +458,17 @@ func generateHostBlock(config SSHConfig) []string {
 	return block
 }
 
+// generateHostBlock creates a complete host block for a new host
+func generateConsoleHostBlock(config ConsoleConfig) []byte {
+
+	content, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		log.Printf("error marshalling JSON: %v", err)
+	}
+
+	return content
+}
+
 // deleteSSHProfile removes a specified host and its parameters from the SSH config file
 func deleteSSHProfile(host string) error {
 	// Get the user's home directory
@@ -441,6 +567,7 @@ func getSSHConfigPath() (string, error) {
 
 	d := filepath.Join(homeDir, ".ssh")
 	p := filepath.Join(d, "config")
+	c := filepath.Join(d, "console.json")
 
 	if _, err := os.Stat(d); err != nil {
 		log.Fatalf("failed to find/access the config file path: %v", d)
@@ -462,6 +589,16 @@ func getSSHConfigPath() (string, error) {
 		}
 
 		updateSSHConfig(p, defaultConfig)
+	}
+
+	if runtime.GOOS == "darwin" && checkShellCommands("cu") == nil {
+		if _, err := os.Stat(c); err != nil {
+			fmt.Printf("failed to find/access the console file path: %v. Trying to create it...\n", c)
+
+			if err := createFile(c); err != nil {
+				log.Fatalf("failed to create/access the console file path: %v", c)
+			}
+		}
 	}
 
 	return filepath.Join(homeDir, ".ssh", "config"), nil
@@ -508,7 +645,7 @@ func fixKeyPath(keyPath string) string {
 
 }
 
-func processCliArgs() (SSHConfig, *string) {
+func processCliArgs() (ConsoleConfig, SSHConfig, *string, string) {
 	action := flag.String("action", "", "Action to perform: add, remove")
 
 	host := flag.String("host", "", "Host alias")
@@ -523,7 +660,19 @@ func processCliArgs() (SSHConfig, *string) {
 
 	identityFile := flag.String("key", "", "IdentityFile path")
 
+	BaudRate := flag.String("baudrate", "9600", "BaudRate, default is 9600")
+
+	DataBits := flag.String("data_bits", "8", "databits, default is 8")
+
+	StopBit := flag.String("stop_bit", "1", "stop bit, default is 1")
+
+	Parity := flag.String("parity", "none", "parity, default is none")
+
+	device := flag.String("device", "/dev/tty.usbserial-1140", "device path, default is /dev/tty.usbserial-1140")
+
 	version := flag.Bool("version", false, "prints the compile time (version)")
+
+	profileType := flag.String("type", "ssh", "profile type, can be ssh or console, default is ssh")
 
 	flag.Parse()
 
@@ -544,6 +693,15 @@ func processCliArgs() (SSHConfig, *string) {
 		passString = string(bytePassword)
 	}
 
+	consoleProfile := ConsoleConfig{
+		Host:     *host,
+		BaudRate: *BaudRate,
+		Device:   *device,
+		Parity:   *Parity,
+		StopBit:  *StopBit,
+		DataBits: *DataBits,
+	}
+
 	profile := SSHConfig{
 		Host:         *host,
 		HostName:     *hostname,
@@ -558,20 +716,18 @@ func processCliArgs() (SSHConfig, *string) {
 		profile.IdentityFile = cleanPath
 	}
 
-	return profile, action
-}
-
-type FileNode struct {
-	Name     string
-	IsDir    bool
-	Children []*FileNode
-	Parent   *FileNode // Add this line
+	return consoleProfile, profile, action, *profileType
 }
 
 func ExecTheUI(configPath string) {
 
 	hosts := getHosts(configPath)
 	items := getItems(hosts)
+	if len(consoleConfigs) > 0 {
+		for _, c := range consoleConfigs {
+			items = append(items, fmt.Sprintf("%s %v>%v %s", c.Host, green, reset, c.BaudRate))
+		}
+	}
 
 	searcher := func(input string, index int) bool {
 		item := items[index]
@@ -601,7 +757,7 @@ func ExecTheUI(configPath string) {
 		return
 	}
 
-	// fmt.Printf("You chose %q\n", chosen)
+	chosen_type := "ssh"
 
 	chosenParts := strings.Split(chosen, " ")
 	if len(chosenParts) < 1 {
@@ -609,183 +765,235 @@ func ExecTheUI(configPath string) {
 		return
 	}
 
+	if !strings.Contains(chosen, "@") {
+		chosen_type = "console"
+	}
+
 	hostName := chosenParts[0]
 
-	promptCommand := promptui.Select{
-		Label: "Select Command",
-		Size:  35,
-		Items: []string{"ssh", "sftp (os native)", "sftp (text UI)", "Ping", "TCPing", "Edit Profile", "Set Password", "Reveal Password", "Remove Profile"},
-		Templates: &promptui.SelectTemplates{
-			Label:    "{{ . }}?",
-			Active:   "\U0001F534 {{ . | cyan }} (press enter to select)",
-			Inactive: "  {{ . | cyan }}",
-			Selected: "\U0001F7E2 {{ . | red | cyan }}",
-		},
-	}
+	if chosen_type == "ssh" {
+		promptCommand := promptui.Select{
+			Label: "Select Command",
+			Size:  35,
+			Items: []string{"ssh", "sftp (os native)", "sftp (text UI)", "Ping", "TCPing", "Edit Profile", "Set Password", "Reveal Password", "Remove Profile"},
+			Templates: &promptui.SelectTemplates{
+				Label:    "{{ . }}?",
+				Active:   "\U0001F534 {{ . | cyan }} (press enter to select)",
+				Inactive: "  {{ . | cyan }}",
+				Selected: "\U0001F7E2 {{ . | red | cyan }}",
+			},
+		}
 
-	_, command, err := promptCommand.Run()
-	if err != nil {
-		handleExitSignal(err)
-		return
-	}
-
-	if strings.EqualFold(command, "Edit profile") {
-		editProfile(hostName, configPath)
-
-	} else if strings.EqualFold(command, "Remove profile") {
-		deleteSSHProfile(hostName)
-
-	} else if strings.EqualFold(command, "Reveal Password") {
-		password, err := EncryptOrDecryptPassword(hostName, key, "dec")
+		_, command, err := promptCommand.Run()
 		if err != nil {
-			log.Println(err.Error())
-		}
-		fmt.Println("Password for", hostName, ":", password)
-		os.Exit(0)
-
-	} else if strings.EqualFold(command, "Set Password") {
-
-		fmt.Print("\nEnter password: ")
-		bytePassword, err := term.ReadPassword(int(syscall.Stdin))
-		fmt.Println()
-		if err != nil {
-			fmt.Println("Error reading password:", err)
-			os.Exit(1)
+			handleExitSignal(err)
+			return
 		}
 
-		passString := string(bytePassword)
+		if strings.EqualFold(command, "Edit profile") {
+			editProfile(hostName, configPath)
 
-		profile := SSHConfig{
-			Host:     hostName,
-			Password: passString,
-		}
+		} else if strings.EqualFold(command, "Remove profile") {
+			deleteSSHProfile(hostName)
 
-		updatePasswordDB(profile)
-		writeUpdatedPassDbToFile()
-		fmt.Println("\nPassword has been successfully added to the password database!")
+		} else if strings.EqualFold(command, "Reveal Password") {
+			password, err := EncryptOrDecryptPassword(hostName, key, "dec")
+			if err != nil {
+				log.Println(err.Error())
+			}
+			fmt.Println("Password for", hostName, ":", password)
+			os.Exit(0)
 
-	} else if strings.EqualFold(command, "ping") {
-		h, err := extractHost(hostName, configPath)
-		if err != nil {
-			log.Fatalln(err)
-		}
-		cmd := *exec.Command(strings.ToLower(command), h.HostName)
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		cmd.Run()
-	} else if strings.EqualFold(command, "tcping") {
-		if err := checkShellCommands(strings.ToLower(command)); err != nil {
-			log.Println("tcping is not installed. install by checking https://github.com/pouriyajamshidi/tcping")
+		} else if strings.EqualFold(command, "Set Password") {
 
-		} else {
-			port := "22"
+			fmt.Print("\nEnter password: ")
+			bytePassword, err := term.ReadPassword(int(syscall.Stdin))
+			fmt.Println()
+			if err != nil {
+				fmt.Println("Error reading password:", err)
+				os.Exit(1)
+			}
+
+			passString := string(bytePassword)
+
+			profile := SSHConfig{
+				Host:     hostName,
+				Password: passString,
+			}
+
+			updatePasswordDB(profile)
+			writeUpdatedPassDbToFile()
+			fmt.Println("\nPassword has been successfully added to the password database!")
+
+		} else if strings.EqualFold(command, "ping") {
 			h, err := extractHost(hostName, configPath)
 			if err != nil {
 				log.Fatalln(err)
 			}
-			if h.Port != "" {
-				port = h.Port
-			}
-			cmd := *exec.Command(strings.ToLower(command), h.HostName, port)
+			cmd := *exec.Command(strings.ToLower(command), h.HostName)
 			cmd.Stdin = os.Stdin
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 			cmd.Run()
-		}
-	} else if strings.EqualFold(strings.ToLower(command), "sftp (text UI)") {
+		} else if strings.EqualFold(command, "tcping") {
+			if err := checkShellCommands(strings.ToLower(command)); err != nil {
+				log.Println("tcping is not installed. install by checking https://github.com/pouriyajamshidi/tcping")
 
-		h, err := extractHost(hostName, configPath)
-		if err != nil {
-			log.Fatalln(err)
-		}
-
-		if h.Port == "" {
-			h.Port = "22"
-		}
-
-		if strings.HasPrefix(h.IdentityFile, "~") {
-			homeDir, _ := os.UserHomeDir()
-			h.IdentityFile = strings.Replace(h.IdentityFile, "~", homeDir, -1)
-		}
-
-		var password string
-
-		if err := checkShellCommands("sshpass"); err != nil {
-			log.Println("sshpass is not installed, only key authentication is supported")
-		} else {
-
-			// Find the password in the passwords.json file for the hostname
-			for _, p := range hostPasswords {
-
-				if p.Host == hostName {
-					// Decrypt the password if ecnrypted and store it in password variable
-					password, err = EncryptOrDecryptPassword(p.Host, key, "dec")
-					if err != nil {
-						log.Println(err.Error())
-					}
-					break
-				}
-			}
-		}
-
-		err = sftp_ui.INIT_SFTP(h.Host, h.HostName, h.User, password, h.Port, h.IdentityFile)
-		if err != nil {
-			if strings.Contains(err.Error(), "methods [none], no supported methods remain") {
-				fmt.Printf("\n - Can't authenticate to the server. no password or key provided. \n\n")
-			} else if strings.Contains(err.Error(), "methods [none password], no supported methods remain") {
-				fmt.Printf("\n - Can't authenticate to the server. the provided password is wrong and no key provided. \n\n")
 			} else {
-				fmt.Println(err.Error())
+				port := "22"
+				h, err := extractHost(hostName, configPath)
+				if err != nil {
+					log.Fatalln(err)
+				}
+				if h.Port != "" {
+					port = h.Port
+				}
+				cmd := *exec.Command(strings.ToLower(command), h.HostName, port)
+				cmd.Stdin = os.Stdin
+				cmd.Stdout = os.Stdout
+				cmd.Stderr = os.Stderr
+				cmd.Run()
 			}
-			log.Fatalln(err)
-		}
+		} else if strings.EqualFold(strings.ToLower(command), "sftp (text UI)") {
 
-	} else {
-		if strings.EqualFold(command, "sftp (os native)") {
-			command = "sftp"
-		}
+			h, err := extractHost(hostName, configPath)
+			if err != nil {
+				log.Fatalln(err)
+			}
 
-		// make sure sftp or ssh commands are availble in the shell
-		if err := checkShellCommands(command); err != nil {
-			log.Fatalln(err.Error())
-		}
+			if h.Port == "" {
+				h.Port = "22"
+			}
 
-		cmd := *exec.Command(command, hostName)
-		method := "key"
-		password := `''`
+			if strings.HasPrefix(h.IdentityFile, "~") {
+				homeDir, _ := os.UserHomeDir()
+				h.IdentityFile = strings.Replace(h.IdentityFile, "~", homeDir, -1)
+			}
 
-		// Check if sshpass command is availble in the shell, needed for passsword authentication
-		if err := checkShellCommands("sshpass"); err != nil {
-			log.Println("sshpass is not installed, only key authentication is supported")
-			passAuthSupported = false
+			var password string
 
-		} else if passAuthSupported {
+			if err := checkShellCommands("sshpass"); err != nil {
+				log.Println("sshpass is not installed, only key authentication is supported")
+			} else {
 
-			// Find the password in the passwords.json file for the hostname
-			for _, p := range hostPasswords {
-				if p.Host == hostName {
-					// Decrypt the password if ecnrypted and store it in password variable
-					password, err = EncryptOrDecryptPassword(p.Host, key, "dec")
-					if err != nil {
-						log.Println(err.Error())
+				// Find the password in the passwords.json file for the hostname
+				for _, p := range hostPasswords {
+
+					if p.Host == hostName {
+						// Decrypt the password if ecnrypted and store it in password variable
+						password, err = EncryptOrDecryptPassword(p.Host, key, "dec")
+						if err != nil {
+							log.Println(err.Error())
+						}
+						break
 					}
-					break
 				}
 			}
 
-			if password != `''` {
-				cmd = *exec.Command("sshpass", "-p", password, command, hostName)
-				method = "password"
+			err = sftp_ui.INIT_SFTP(h.Host, h.HostName, h.User, password, h.Port, h.IdentityFile)
+			if err != nil {
+				if strings.Contains(err.Error(), "methods [none], no supported methods remain") {
+					fmt.Printf("\n - Can't authenticate to the server. no password or key provided. \n\n")
+				} else if strings.Contains(err.Error(), "methods [none password], no supported methods remain") {
+					fmt.Printf("\n - Can't authenticate to the server. the provided password is wrong and no key provided. \n\n")
+				} else {
+					fmt.Println(err.Error())
+				}
+				log.Fatalln(err)
 			}
+
+		} else {
+			if strings.EqualFold(command, "sftp (os native)") {
+				command = "sftp"
+			}
+
+			// make sure sftp or ssh commands are availble in the shell
+			if err := checkShellCommands(command); err != nil {
+				log.Fatalln(err.Error())
+			}
+
+			cmd := *exec.Command(command, hostName)
+			method := "key"
+			password := `''`
+
+			// Check if sshpass command is availble in the shell, needed for passsword authentication
+			if err := checkShellCommands("sshpass"); err != nil {
+				log.Println("sshpass is not installed, only key authentication is supported")
+				passAuthSupported = false
+
+			} else if passAuthSupported {
+
+				// Find the password in the passwords.json file for the hostname
+				for _, p := range hostPasswords {
+					if p.Host == hostName {
+						// Decrypt the password if ecnrypted and store it in password variable
+						password, err = EncryptOrDecryptPassword(p.Host, key, "dec")
+						if err != nil {
+							log.Println(err.Error())
+						}
+						break
+					}
+				}
+
+				if password != `''` {
+					cmd = *exec.Command("sshpass", "-p", password, command, hostName)
+					method = "password"
+				}
+			}
+
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			fmt.Println("Trying:", method, "authentication")
+			cmd.Run()
 		}
 
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		fmt.Println("Trying:", method, "authentication")
-		cmd.Run()
+	} else if chosen_type == "console" {
+
+		promptCommand := promptui.Select{
+			Label: "Select Command",
+			Size:  35,
+			Items: []string{"Connect via cu", "Edit Profile", "Remove Profile"},
+			Templates: &promptui.SelectTemplates{
+				Label:    "{{ . }}?",
+				Active:   "\U0001F534 {{ . | cyan }} (press enter to select)",
+				Inactive: "  {{ . | cyan }}",
+				Selected: "\U0001F7E2 {{ . | red | cyan }}",
+			},
+		}
+
+		_, command, err := promptCommand.Run()
+		if err != nil {
+			handleExitSignal(err)
+			return
+		}
+
+		if strings.ToLower(command) == "connect" {
+			for _, c := range consoleConfigs {
+				if c.Host == hostName {
+
+					cmd := *exec.Command("sudo", "cu", "-s", c.BaudRate, "-l", c.Device)
+					cmd.Stdin = os.Stdin
+					cmd.Stdout = os.Stdout
+					cmd.Stderr = os.Stderr
+					cmd.Run()
+				}
+			}
+		} else if strings.ToLower(command) == "edit profile" {
+
+			editConsoleProfile(hostName)
+
+		} else if strings.ToLower(command) == "remove profile" {
+			for _, c := range consoleConfigs {
+				if c.Host == hostName {
+					removeConsoleConfig(hostName)
+				}
+			}
+
+		}
+
 	}
+
 }
 
 func getHosts(sshConfigPath string) []SSHConfig {
@@ -903,6 +1111,71 @@ func removePaths(stack []byte) []byte {
 	return bytes.Join(lines, []byte("\n"))
 }
 
+func readConsoleProfile() (ConsoleConfigs, error) {
+
+	if _, err := os.Stat(console_file_path); err != nil {
+
+		log.Fatalf("failed to create/access the console file: %v", console_file_path)
+	}
+
+	data, err := os.ReadFile(console_file_path)
+	if err != nil {
+		return consoleConfigs, fmt.Errorf("error reading the console file: %v", err)
+	}
+
+	if len(data) != 0 {
+		err = json.Unmarshal(data, &consoleConfigs)
+		if err != nil {
+			log.Fatalf("error unmarshalling JSON: %v", err)
+			return consoleConfigs, fmt.Errorf("error unmarshalling JSON: %v", err)
+		}
+	}
+
+	return consoleConfigs, nil
+}
+
+// func addConsoleProfileToJsonProfiles(c ConsoleConfig, consoleConfigs *ConsoleConfigs) {
+
+// 	*consoleConfigs = append(*consoleConfigs, c)
+// }
+
+func removeConsoleConfig(h string) {
+	for i, v := range consoleConfigs {
+		if v.Host == h {
+			consoleConfigs = append(consoleConfigs[:i], consoleConfigs[i+1:]...)
+		}
+	}
+}
+
+func addConsoleConfig(profile ConsoleConfig) {
+
+	f := consoleConfigs
+
+	for i, v := range consoleConfigs {
+		if v.Host == profile.Host {
+			f = append(consoleConfigs[:i], consoleConfigs[i+1:]...)
+		}
+	}
+
+	consoleConfigs = f
+	consoleConfigs = append(consoleConfigs, profile)
+}
+
+func writeUpdatedConsoleDBToFile() error {
+
+	content, err := json.MarshalIndent(consoleConfigs, "", "  ")
+	if err != nil {
+		return fmt.Errorf("error marshalling JSON: %v", err)
+	}
+
+	err = os.WriteFile(console_file_path, content, 0644)
+	if err != nil {
+		return fmt.Errorf("error writing file: %v", err)
+	}
+
+	return nil
+}
+
 func main() {
 
 	defer customPanicHandler()
@@ -929,37 +1202,57 @@ func main() {
 	// Read the JSON file
 	hostPasswords, err = readPassFile()
 	if err != nil {
-		log.Fatalln(err.Error())
+		log.Fatalln(err)
 	}
 
-	profile, action := processCliArgs()
+	if console_file_path, err = updateFilePath(console_file_path); err != nil {
+		fmt.Println(err)
+	}
+
+	consoleConfigs, err = readConsoleProfile()
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	consoleProfile, sshProfile, action, profileType := processCliArgs()
+	defer writeUpdatedConsoleDBToFile()
 
 	if *action != "" {
-		if profile.Host == "" {
+		if sshProfile.Host == "" {
 			fmt.Println("Usage: -action [add|remove] -host HOST [other flags...]")
 			return
 		} else {
 			doConfigBackup()
 			switch strings.ToLower(*action) {
 			case "add":
-				if err := updateSSHConfig(configPath, profile); err != nil {
-					fmt.Println("Error adding/updating profile:", err)
-					os.Exit(1)
-				}
+				switch strings.ToLower(profileType) {
+				case "ssh":
+					if err := updateSSHConfig(configPath, sshProfile); err != nil {
+						fmt.Println("Error adding/updating profile:", err)
+						os.Exit(1)
+					}
 
-				if profile.Password != "" {
-					updatePasswordDB(profile)
-					writeUpdatedPassDbToFile()
-					fmt.Println("\nPassword has been successfully added to the password database!")
+					if sshProfile.Password != "" {
+						updatePasswordDB(sshProfile)
+						writeUpdatedPassDbToFile()
+						fmt.Println("\nPassword has been successfully added to the password database!")
+					}
+				case "console":
+					addConsoleConfig(consoleProfile)
 				}
 
 			case "remove":
-				if err := deleteSSHProfile(profile.Host); err != nil {
-					fmt.Println("Error removing profile:", err)
+				switch strings.ToLower(profileType) {
+				case "ssh":
+					if err := deleteSSHProfile(sshProfile.Host); err != nil {
+						fmt.Println("Error removing profile:", err)
+					}
+
+					hostPasswords = removeValue(hostPasswords, sshProfile.Host)
+
+				case "console":
+					removeConsoleConfig(consoleProfile.Host)
 				}
-
-				hostPasswords = removeValue(hostPasswords, profile.Host)
-
 			default:
 				fmt.Println("Invalid action. Use '-action add' or '-action remove'.")
 			}
