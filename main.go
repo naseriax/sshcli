@@ -1181,6 +1181,15 @@ func main() {
 	defer customPanicHandler()
 
 	defer writeUpdatedPassDbToFile()
+	homeDir, _ := os.UserHomeDir()
+	file, err := os.OpenFile(homeDir+"/sshcli.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer file.Close()
+
+	log.SetOutput(file)
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
 	configPath, err := getSSHConfigPath()
 	if err != nil {
@@ -1209,9 +1218,12 @@ func main() {
 		fmt.Println(err)
 	}
 
-	consoleConfigs, err = readConsoleProfile()
-	if err != nil {
-		log.Fatalln(err)
+	if runtime.GOOS == "darwin" && checkShellCommands("cu") == nil {
+
+		consoleConfigs, err = readConsoleProfile()
+		if err != nil {
+			log.Fatalln(err)
+		}
 	}
 
 	consoleProfile, sshProfile, action, profileType := processCliArgs()

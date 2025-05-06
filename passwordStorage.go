@@ -220,7 +220,7 @@ func writeUpdatedPassDbToFile() error {
 	// make sure all records are encrypted:
 	_, err := EncryptOrDecryptPassword("", key, "enc")
 	if err != nil {
-		fmt.Println("failed to encrypt the password datababe. Decrypted data may be written to the passwords.json file")
+		log.Println("failed to encrypt the password datababe. Decrypted data may be written to the passwords.json file")
 	}
 
 	encryptedData, err := json.MarshalIndent(hostPasswords, "", "  ")

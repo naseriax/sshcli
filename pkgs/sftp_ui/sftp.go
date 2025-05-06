@@ -316,7 +316,7 @@ func opentheGates(host, user, key, password string) (*sftp.Client, *ssh.Client, 
 		authMethods = append(authMethods, ssh.Password(password))
 	}
 
-	if key != "" {
+	if key != "" && key != " " {
 		authMethods = append(authMethods, publicKeyFile(key))
 	}
 
@@ -527,15 +527,6 @@ func detectItemType(item string) string {
 }
 
 func INIT_SFTP(hostId, host, user, password, port, key string) error {
-
-	file, err := os.OpenFile("sftp.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer file.Close()
-
-	log.SetOutput(file)
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
 	sftpClient, sshClient, err := opentheGates(host+":"+port, user, key, password)
 	if err != nil {
