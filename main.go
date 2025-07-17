@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"slices"
 	"sort"
 	"sshcli/pkgs/sftp_ui"
 	"strings"
@@ -31,7 +32,7 @@ const (
 
 var console_file_path = "console.json"
 var consoleConfigs ConsoleConfigs
-
+var folderdb = "folderdb.json"
 var CompileTime = ""
 var passAuthSupported = true
 var key []byte
@@ -44,6 +45,7 @@ type SSHConfig struct {
 	Port         string
 	IdentityFile string
 	Password     string
+	Folder       string
 }
 
 type FileNode struct {
@@ -61,6 +63,12 @@ type ConsoleConfig struct {
 	Parity   string
 	StopBit  string
 	DataBits string
+	Folder   string
+}
+
+type Folders []struct {
+	Name     string   `json:"name"`
+	Profiles []string `json:"profiles"`
 }
 
 type ConsoleConfigs []ConsoleConfig
@@ -89,6 +97,68 @@ func doConfigBackup() error {
 	return err
 }
 
+func removeProfileFromStringSlice(slice []string, s string) []string {
+	for i, v := range slice {
+		if v == s {
+			return append(slice[:i], slice[i+1:]...)
+		}
+	}
+	return slice
+}
+
+func RemoveProfileFromFolders(data Folders, profileToRemove string) Folders {
+
+	result := make(Folders, len(data))
+
+	for i, item := range data {
+		item.Profiles = removeProfileFromStringSlice(item.Profiles, profileToRemove)
+		result[i] = item
+	}
+
+	return result
+}
+
+func overWriteFolderDb(folders Folders) error {
+	data, err := json.MarshalIndent(folders, "", "  ")
+	if err != nil {
+		return fmt.Errorf("error marshalling folderdb json: %v", err)
+	}
+
+	if err := os.WriteFile(folderdb, data, 0644); err != nil {
+		return fmt.Errorf("error writing folderdb file: %v", err)
+	}
+
+	return nil
+}
+
+func readFolderDb() (Folders, error) {
+
+	folder := Folders{}
+
+	if _, err := os.Stat(folderdb); err != nil {
+		fmt.Printf("It seems no folder database file was created before, so here is one: %v. Trying to create it...\n", folderdb)
+
+		if err := createFile(folderdb); err != nil {
+			log.Fatalf("failed to create/access the folder database file: %v", folderdb)
+		}
+	}
+
+	data, err := os.ReadFile(folderdb)
+	if err != nil {
+		return folder, fmt.Errorf("error reading the folder database file: %v", err)
+	}
+
+	if len(data) != 0 {
+		err = json.Unmarshal(data, &folder)
+		if err != nil {
+			log.Fatalf("error unmarshalling folderdb json: %v", err)
+			return folder, fmt.Errorf("error unmarshalling JSON: %v", err)
+		}
+	}
+
+	return folder, nil
+}
+
 func checkShellCommands(c string) error {
 	if _, err := exec.LookPath(c); err != nil {
 		return fmt.Errorf("%v command is not available in the default system shell", c)
@@ -114,9 +184,9 @@ func getDefaultEditor() string {
 	return "vi"
 }
 
-func extractHost(profileName, configPath string) (SSHConfig, error) {
+func extractHost(profileName, configPath string, folders Folders) (SSHConfig, error) {
 	c := SSHConfig{}
-	hosts := getHosts(configPath)
+	hosts := getHosts(configPath, folders)
 
 	for _, h := range hosts {
 		if h.Host == profileName {
@@ -127,7 +197,7 @@ func extractHost(profileName, configPath string) (SSHConfig, error) {
 	return c, fmt.Errorf("failed to find the profile in the config file")
 }
 
-func editProfile(profileName, configPath string) error {
+func editProfile(profileName, configPath string, folders Folders) error {
 	tmpfile, err := os.CreateTemp("", "ssh-profile-*.txt")
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %v", err)
@@ -135,7 +205,7 @@ func editProfile(profileName, configPath string) error {
 
 	defer os.Remove(tmpfile.Name())
 
-	hosts := getHosts(configPath)
+	hosts := getHosts(configPath, folders)
 
 	config := SSHConfig{}
 
@@ -193,7 +263,7 @@ func editProfile(profileName, configPath string) error {
 
 	if fileInfoAfter.ModTime().After(fileInfoBefore.ModTime()) {
 		// Read the modified content
-		newHosts := getHosts(tmpfile.Name())
+		newHosts := getHosts(tmpfile.Name(), folders)
 		newHost := SSHConfig{}
 
 		if len(newHosts) > 0 {
@@ -292,8 +362,6 @@ func editConsoleProfile(profileName string) error {
 				log.Fatalf("error unmarshalling JSON for consoleConfigs: %v", err)
 			}
 		}
-
-		fmt.Println(c)
 
 		if c.Host != "" {
 			addConsoleConfig(c)
@@ -719,29 +787,47 @@ func processCliArgs() (ConsoleConfig, SSHConfig, *string, string) {
 	return consoleProfile, profile, action, *profileType
 }
 
-func ExecTheUI(configPath string) {
+func containsProfile(slice []string, s string) bool {
+	for _, v := range slice {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
 
-	hosts := getHosts(configPath)
-	items := getItems(hosts)
-	if len(consoleConfigs) > 0 {
-		for _, c := range consoleConfigs {
-			items = append(items, fmt.Sprintf("%s %v>%v %s", c.Host, green, reset, c.BaudRate))
+func AddProfileToFolder(data Folders, folderName string, newProfile string) Folders {
+
+	for i, item := range data {
+		if strings.EqualFold(item.Name, folderName) {
+			if !containsProfile(item.Profiles, newProfile) {
+				data[i].Profiles = append(data[i].Profiles, newProfile)
+				fmt.Printf("Profile %q added to folder %q.\n", newProfile, folderName)
+			} else {
+				fmt.Printf("Profile %q already exists in folder %q. No changes made.\n", newProfile, folderName)
+			}
+			return data
 		}
 	}
 
-	searcher := func(input string, index int) bool {
-		item := items[index]
-		name := strings.Replace(strings.ToLower(item), " ", "", -1)
-		input = strings.Replace(strings.ToLower(input), " ", "", -1)
+	fmt.Printf("Folder with name %q not found.\n", folderName)
+	return data
+}
 
-		return strings.Contains(name, input)
+func moveToFolder(hostName string, folders Folders) {
+
+	FolderList := make([]string, 0, len(folders))
+	for _, folder := range folders {
+		FolderList = append(FolderList, folder.Name)
 	}
 
+	FolderList = append(FolderList, "New Folder")
+	FolderList = append(FolderList, "Remove from folder")
+	folderName := ""
+
 	prompt := promptui.Select{
-		Label:    "Select Host",
-		Searcher: searcher,
-		Items:    items,
-		Size:     35,
+		Label: "Select Folder",
+		Items: FolderList,
 		Templates: &promptui.SelectTemplates{
 			Label:    "{{ . }}?",
 			Active:   "\U0001F534 {{ . | cyan }} (press enter to select)",
@@ -750,14 +836,54 @@ func ExecTheUI(configPath string) {
 		},
 	}
 
-	_, chosen, err := prompt.Run()
-
+	_, folderName, err := prompt.Run()
 	if err != nil {
 		handleExitSignal(err)
 		return
 	}
 
-	chosen_type := "ssh"
+	if strings.EqualFold(folderName, "New Folder") {
+		var name string
+		fmt.Print("New folder name: ")
+		scanner := bufio.NewScanner(os.Stdin)
+		if scanner.Scan() {
+			name = scanner.Text()
+		}
+		if err := scanner.Err(); err != nil {
+			fmt.Fprintln(os.Stderr, "Error reading from stdin:", err)
+		}
+
+		if len(name) == 0 {
+			fmt.Println("Empty name? really? Doing nothing!")
+			os.Exit(0)
+		}
+
+		for _, p := range folders {
+			if p.Name == name {
+				fmt.Println("Folder with name", name, "already exists. Doing nothing!")
+				os.Exit(0)
+			}
+		}
+
+		folders = RemoveProfileFromFolders(folders, hostName)
+
+		folders = append(folders, struct {
+			Name     string   "json:\"name\""
+			Profiles []string "json:\"profiles\""
+		}{Name: name, Profiles: []string{hostName}})
+
+	} else if strings.EqualFold(folderName, "Remove from folder") {
+		folders = RemoveProfileFromFolders(folders, hostName)
+	} else {
+		folders = RemoveProfileFromFolders(folders, hostName)
+		folders = AddProfileToFolder(folders, folderName, hostName)
+	}
+
+	overWriteFolderDb(folders)
+}
+
+func Connect(chosen string, configPath string, folders Folders) {
+	chosen_type := ""
 
 	chosenParts := strings.Split(chosen, " ")
 	if len(chosenParts) < 1 {
@@ -765,8 +891,12 @@ func ExecTheUI(configPath string) {
 		return
 	}
 
-	if !strings.Contains(chosen, "@") {
+	if !strings.Contains(chosen, "@") && strings.Contains(chosen, ">") {
+		chosen_type = "folder"
+	} else if !strings.Contains(chosen, "@") && strings.Contains(chosen, ">") {
 		chosen_type = "console"
+	} else {
+		chosen_type = "ssh"
 	}
 
 	hostName := chosenParts[0]
@@ -775,7 +905,7 @@ func ExecTheUI(configPath string) {
 		promptCommand := promptui.Select{
 			Label: "Select Command",
 			Size:  35,
-			Items: []string{"ssh", "sftp (os native)", "sftp (text UI)", "Ping", "TCPing", "Edit Profile", "Set Password", "Reveal Password", "Remove Profile"},
+			Items: []string{"SSH", "SFTP (os native)", "SFTP (text UI)", "Ping", "TCPing", "Edit Profile", "Set Password", "Reveal Password", "Remove Profile", "Set Folder"},
 			Templates: &promptui.SelectTemplates{
 				Label:    "{{ . }}?",
 				Active:   "\U0001F534 {{ . | cyan }} (press enter to select)",
@@ -789,11 +919,13 @@ func ExecTheUI(configPath string) {
 			handleExitSignal(err)
 			return
 		}
+		if strings.EqualFold(command, "Set Folder") {
+			moveToFolder(hostName, folders)
 
-		if strings.EqualFold(command, "Edit profile") {
-			editProfile(hostName, configPath)
+		} else if strings.EqualFold(command, "Edit Profile") {
+			editProfile(hostName, configPath, folders)
 
-		} else if strings.EqualFold(command, "Remove profile") {
+		} else if strings.EqualFold(command, "Remove Profile") {
 			deleteSSHProfile(hostName)
 
 		} else if strings.EqualFold(command, "Reveal Password") {
@@ -826,7 +958,7 @@ func ExecTheUI(configPath string) {
 			fmt.Println("\nPassword has been successfully added to the password database!")
 
 		} else if strings.EqualFold(command, "ping") {
-			h, err := extractHost(hostName, configPath)
+			h, err := extractHost(hostName, configPath, folders)
 			if err != nil {
 				log.Fatalln(err)
 			}
@@ -838,10 +970,11 @@ func ExecTheUI(configPath string) {
 		} else if strings.EqualFold(command, "tcping") {
 			if err := checkShellCommands(strings.ToLower(command)); err != nil {
 				log.Println("tcping is not installed. install by checking https://github.com/pouriyajamshidi/tcping")
+				fmt.Println("tcping is not installed. install by checking https://github.com/pouriyajamshidi/tcping")
 
 			} else {
 				port := "22"
-				h, err := extractHost(hostName, configPath)
+				h, err := extractHost(hostName, configPath, folders)
 				if err != nil {
 					log.Fatalln(err)
 				}
@@ -856,7 +989,7 @@ func ExecTheUI(configPath string) {
 			}
 		} else if strings.EqualFold(strings.ToLower(command), "sftp (text UI)") {
 
-			h, err := extractHost(hostName, configPath)
+			h, err := extractHost(hostName, configPath, folders)
 			if err != nil {
 				log.Fatalln(err)
 			}
@@ -991,12 +1124,125 @@ func ExecTheUI(configPath string) {
 			}
 
 		}
-
 	}
-
 }
 
-func getHosts(sshConfigPath string) []SSHConfig {
+func ExecTheUI(configPath string, folders Folders) {
+
+	hosts := getHosts(configPath, folders)
+	items := getItems(hosts, folders)
+
+	if len(consoleConfigs) > 0 {
+		for _, c := range consoleConfigs {
+			items = append(items, fmt.Sprintf("%s %v>%v %s", c.Host, green, reset, c.BaudRate))
+		}
+	}
+
+	searcher := func(input string, index int) bool {
+		item := items[index]
+		name := strings.ReplaceAll(strings.ToLower(item), " ", "")
+		input = strings.ReplaceAll(strings.ToLower(input), " ", "")
+
+		return strings.Contains(name, input)
+	}
+
+	prompt := promptui.Select{
+		Label:    "Select Host",
+		Searcher: searcher,
+		Items:    items,
+		Size:     35,
+		Templates: &promptui.SelectTemplates{
+			Label:    "{{ . }}?",
+			Active:   "\U0001F534 {{ . | cyan }} (press enter to select)",
+			Inactive: "  {{ . | cyan }}",
+			Selected: "\U0001F7E2 {{ . | red | cyan }}",
+		},
+	}
+
+	_, chosen, err := prompt.Run()
+
+	if err != nil {
+		handleExitSignal(err)
+		return
+	}
+
+	chosen_type := ""
+
+	chosenParts := strings.Split(chosen, " ")
+	if len(chosenParts) < 1 {
+		fmt.Println("Invalid item")
+		return
+	}
+
+	if !strings.Contains(chosen, "@") && !strings.Contains(chosen, ">") {
+		chosen_type = "folder"
+	} else if !strings.Contains(chosen, "@") && strings.Contains(chosen, ">") {
+		chosen_type = "console"
+	} else {
+		chosen_type = "ssh"
+	}
+
+	if chosen_type == "folder" {
+
+		sshconfigInFolder := []SSHConfig{}
+		for _, f := range folders {
+			if f.Name == chosen {
+				for _, sshconfig := range hosts {
+					if sshconfig.Folder == chosen {
+						sshconfigInFolder = append(sshconfigInFolder, sshconfig)
+					}
+				}
+			}
+		}
+
+		submenu_items := getItems(sshconfigInFolder, Folders{})
+
+		submenu_searcher := func(input string, index int) bool {
+			item := submenu_items[index]
+			name := strings.ReplaceAll(strings.ToLower(item), " ", "")
+			input = strings.ReplaceAll(strings.ToLower(input), " ", "")
+
+			return strings.Contains(name, input)
+		}
+
+		submenu_prompt := promptui.Select{
+			Label:    "Select Host",
+			Searcher: submenu_searcher,
+			Items:    submenu_items,
+			Size:     35,
+			Templates: &promptui.SelectTemplates{
+				Label:    "{{ . }}?",
+				Active:   "\U0001F534 {{ . | cyan }} (press enter to select)",
+				Inactive: "  {{ . | cyan }}",
+				Selected: "\U0001F7E2 {{ . | red | cyan }}",
+			},
+		}
+
+		_, submenu_chosen, err := submenu_prompt.Run()
+
+		if err != nil {
+			handleExitSignal(err)
+			return
+		}
+
+		Connect(submenu_chosen, configPath, folders)
+	} else {
+		Connect(chosen, configPath, folders)
+	}
+}
+
+func getFolderNameFromDB(name string, folders Folders) string {
+
+	for _, p := range folders {
+		if slices.Contains(p.Profiles, name) {
+			return p.Name
+		}
+	}
+	return ""
+}
+
+func getHosts(sshConfigPath string, folders Folders) []SSHConfig {
+
 	file, err := os.Open(sshConfigPath)
 	if err != nil {
 		log.Fatal(err)
@@ -1009,8 +1255,8 @@ func getHosts(sshConfigPath string) []SSHConfig {
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		if strings.HasPrefix(line, "Host ") {
-			host := strings.TrimPrefix(line, "Host ")
+		if after, ok := strings.CutPrefix(line, "Host "); ok {
+			host := after
 			if host == "*" {
 				continue
 			}
@@ -1018,15 +1264,20 @@ func getHosts(sshConfigPath string) []SSHConfig {
 				hosts = append(hosts, *currentHost)
 			}
 			currentHost = &SSHConfig{Host: host}
+
+			if fName := getFolderNameFromDB(host, folders); fName != "" {
+				currentHost.Folder = fName
+			}
+
 		} else if currentHost != nil {
-			if strings.HasPrefix(line, "HostName ") {
-				currentHost.HostName = strings.TrimPrefix(line, "HostName ")
-			} else if strings.HasPrefix(line, "User ") {
-				currentHost.User = strings.TrimPrefix(line, "User ")
-			} else if strings.HasPrefix(line, "Port ") {
-				currentHost.Port = strings.TrimPrefix(line, "Port ")
-			} else if strings.HasPrefix(line, "IdentityFile ") {
-				currentHost.IdentityFile = strings.TrimPrefix(line, "IdentityFile ")
+			if after, ok := strings.CutPrefix(line, "HostName "); ok {
+				currentHost.HostName = after
+			} else if after, ok := strings.CutPrefix(line, "User "); ok {
+				currentHost.User = after
+			} else if after, ok := strings.CutPrefix(line, "Port "); ok {
+				currentHost.Port = after
+			} else if after, ok := strings.CutPrefix(line, "IdentityFile "); ok {
+				currentHost.IdentityFile = after
 			}
 		}
 	}
@@ -1046,8 +1297,16 @@ func getHosts(sshConfigPath string) []SSHConfig {
 	return hosts
 }
 
-func getItems(hosts []SSHConfig) []string {
-	items := make([]string, len(hosts))
+func getItems(hosts []SSHConfig, folders Folders) []string {
+	c := 0
+	for _, host := range hosts {
+		for _, p := range folders {
+			if host.Folder == p.Name {
+				c++
+			}
+		}
+	}
+	items := make([]string, len(hosts)-c)
 
 	maxHostLen := 1
 	maxUserLen := 1
@@ -1067,6 +1326,16 @@ func getItems(hosts []SSHConfig) []string {
 	maxUserLen += 1
 
 	for i, host := range hosts {
+		isFlat := true
+		for _, p := range folders {
+			if host.Folder == p.Name {
+				isFlat = false
+			}
+		}
+
+		if !isFlat {
+			continue
+		}
 
 		if len(host.HostName) > 0 && len(host.User) > 0 && len(host.Port) > 0 && host.Port != "22" {
 			items[i] = fmt.Sprintf("%-*s %v>%v %-*s%v@%v %s -p %v", maxHostLen, host.Host, green, reset, maxUserLen, host.User, red, reset, host.HostName, host.Port)
@@ -1078,6 +1347,15 @@ func getItems(hosts []SSHConfig) []string {
 			items[i] = host.Host
 		}
 
+	}
+
+	for _, f := range folders {
+		for _, host := range hosts {
+			if host.Folder == f.Name {
+				items = append(items, f.Name)
+				break
+			}
+		}
 	}
 
 	return items
@@ -1114,7 +1392,6 @@ func removePaths(stack []byte) []byte {
 func readConsoleProfile() (ConsoleConfigs, error) {
 
 	if _, err := os.Stat(console_file_path); err != nil {
-
 		log.Fatalf("failed to create/access the console file: %v", console_file_path)
 	}
 
@@ -1133,11 +1410,6 @@ func readConsoleProfile() (ConsoleConfigs, error) {
 
 	return consoleConfigs, nil
 }
-
-// func addConsoleProfileToJsonProfiles(c ConsoleConfig, consoleConfigs *ConsoleConfigs) {
-
-// 	*consoleConfigs = append(*consoleConfigs, c)
-// }
 
 func removeConsoleConfig(h string) {
 	for i, v := range consoleConfigs {
@@ -1208,8 +1480,19 @@ func main() {
 		passAuthSupported = false
 	}
 
-	// Read the JSON file
+	// Findout and set the full path for the folderdb.json file
+	if folderdb, err = updateFilePath(folderdb); err != nil {
+		fmt.Println(err.Error(), "Folder database not found, showing flat entries.")
+	}
+
+	// Read the passwords.json file
 	hostPasswords, err = readPassFile()
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	// Read the folderdb.json file
+	folders, err := readFolderDb()
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -1219,7 +1502,6 @@ func main() {
 	}
 
 	if runtime.GOOS == "darwin" && checkShellCommands("cu") == nil {
-
 		consoleConfigs, err = readConsoleProfile()
 		if err != nil {
 			log.Fatalln(err)
@@ -1270,6 +1552,6 @@ func main() {
 			}
 		}
 	} else {
-		ExecTheUI(configPath)
+		ExecTheUI(configPath, folders)
 	}
 }
