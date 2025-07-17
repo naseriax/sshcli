@@ -1346,7 +1346,6 @@ func getItems(hosts []SSHConfig, folders Folders) []string {
 		} else {
 			items[i] = host.Host
 		}
-
 	}
 
 	for _, f := range folders {
