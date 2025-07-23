@@ -884,17 +884,19 @@ func moveToFolder(hostName string, folders Folders) {
 
 func runSudoCommand(pass string) error {
 
-	command := fmt.Sprintf("echo %s", pass)
+	// command := fmt.Sprintf("echo %s", pass)
 
-	parts := strings.Fields(command)
-	if len(parts) == 0 {
-		return fmt.Errorf("command string is empty")
-	}
+	// parts := strings.Fields(command)
+	// if len(parts) == 0 {
+	// 	return fmt.Errorf("command string is empty")
+	// }
 
-	sudoCmdArgs := append([]string{parts[0]}, parts[1:]...)
-	cmd := exec.Command("sudo", sudoCmdArgs...)
+	// sudoCmdArgs := append([]string{parts[0]}, parts[1:]...)
+	// cmd := exec.Command("sudo", sudoCmdArgs...)
 
-	cmd.Stdin = os.Stdin
+	cmd := exec.Command("sudo", "pbcopy")
+	cmd.Stdin = bytes.NewBufferString(pass)
+
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -960,10 +962,12 @@ func Connect(chosen string, configPath string, folders Folders) {
 			}
 
 			if runtime.GOOS == "darwin" {
-				err := runSudoCommand(fmt.Sprintf("Password for %s: %s", hostName, password))
+
+				err := runSudoCommand(password)
 				if err != nil {
 					fmt.Printf("Error executing sudo command: %v\n", err)
 				}
+				fmt.Println("Password for", hostName, "has been copied to MacOS clipboard.")
 			} else {
 				fmt.Println("Password for", hostName, ":", password)
 			}
