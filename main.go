@@ -882,6 +882,30 @@ func moveToFolder(hostName string, folders Folders) {
 	overWriteFolderDb(folders)
 }
 
+func runSudoCommand(pass string) error {
+
+	command := fmt.Sprintf("echo %s", pass)
+
+	parts := strings.Fields(command)
+	if len(parts) == 0 {
+		return fmt.Errorf("command string is empty")
+	}
+
+	sudoCmdArgs := append([]string{parts[0]}, parts[1:]...)
+	cmd := exec.Command("sudo", sudoCmdArgs...)
+
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	err := cmd.Run()
+	if err != nil {
+		return fmt.Errorf("command failed: %w", err)
+	}
+
+	return nil
+}
+
 func Connect(chosen string, configPath string, folders Folders) {
 	chosen_type := ""
 
@@ -929,11 +953,21 @@ func Connect(chosen string, configPath string, folders Folders) {
 			deleteSSHProfile(hostName)
 
 		} else if strings.EqualFold(command, "Reveal Password") {
+
 			password, err := EncryptOrDecryptPassword(hostName, key, "dec")
 			if err != nil {
 				log.Println(err.Error())
 			}
-			fmt.Println("Password for", hostName, ":", password)
+
+			if runtime.GOOS == "darwin" {
+				err := runSudoCommand(fmt.Sprintf("Password for %s: %s", hostName, password))
+				if err != nil {
+					fmt.Printf("Error executing sudo command: %v\n", err)
+				}
+			} else {
+				fmt.Println("Password for", hostName, ":", password)
+			}
+
 			os.Exit(0)
 
 		} else if strings.EqualFold(command, "Set Password") {
@@ -1298,15 +1332,8 @@ func getHosts(sshConfigPath string, folders Folders) []SSHConfig {
 }
 
 func getItems(hosts []SSHConfig, folders Folders) []string {
-	c := 0
-	for _, host := range hosts {
-		for _, p := range folders {
-			if host.Folder == p.Name {
-				c++
-			}
-		}
-	}
-	items := make([]string, len(hosts)-c)
+
+	items := make([]string, 0)
 
 	maxHostLen := 1
 	maxUserLen := 1
@@ -1324,8 +1351,7 @@ func getItems(hosts []SSHConfig, folders Folders) []string {
 
 	maxHostLen += 1
 	maxUserLen += 1
-
-	for i, host := range hosts {
+	for _, host := range hosts {
 		isFlat := true
 		for _, p := range folders {
 			if host.Folder == p.Name {
@@ -1338,13 +1364,13 @@ func getItems(hosts []SSHConfig, folders Folders) []string {
 		}
 
 		if len(host.HostName) > 0 && len(host.User) > 0 && len(host.Port) > 0 && host.Port != "22" {
-			items[i] = fmt.Sprintf("%-*s %v>%v %-*s%v@%v %s -p %v", maxHostLen, host.Host, green, reset, maxUserLen, host.User, red, reset, host.HostName, host.Port)
+			items = append(items, fmt.Sprintf("%-*s %v>%v %-*s%v@%v %s -p %v", maxHostLen, host.Host, green, reset, maxUserLen, host.User, red, reset, host.HostName, host.Port))
 		} else if len(host.HostName) > 0 && len(host.User) > 0 {
-			items[i] = fmt.Sprintf("%-*s %v>%v %-*s%v@%v %s", maxHostLen, host.Host, green, reset, maxUserLen, host.User, red, reset, host.HostName)
+			items = append(items, fmt.Sprintf("%-*s %v>%v %-*s%v@%v %s", maxHostLen, host.Host, green, reset, maxUserLen, host.User, red, reset, host.HostName))
 		} else if len(host.HostName) > 0 {
-			items[i] = fmt.Sprintf("%-*s %v>%v %s", maxHostLen, host.Host, green, reset, host.HostName)
+			items = append(items, fmt.Sprintf("%-*s %v>%v %s", maxHostLen, host.Host, green, reset, host.HostName))
 		} else {
-			items[i] = host.Host
+			items = append(items, host.Host)
 		}
 	}
 
