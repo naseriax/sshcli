@@ -927,7 +927,6 @@ func Connect(chosen string, configPath string, folders Folders) {
 		return
 	}
 
-	fmt.Println("Connecting to", chosen)
 	if !strings.Contains(chosen, "@") && !strings.Contains(chosen, ">") {
 		chosen_type = "folder"
 	} else if !strings.Contains(chosen, "@") && strings.Contains(chosen, ">") {
@@ -1172,8 +1171,8 @@ func Connect(chosen string, configPath string, folders Folders) {
 				}
 			}
 		}
-	} else {
-		fmt.Println(chosen_type)
+	} else if chosen_type == "folder" {
+		fmt.Println("Nested folders are not supported yet!")
 	}
 }
 
