@@ -28,6 +28,11 @@ const (
 	green       = "\033[32m"
 	reset       = "\033[0m"
 	pinkonbrown = "\033[38;2;255;82;197;48;2;155;106;0m"
+	yellow      = "\033[33m"
+	blue        = "\033[34m"
+	magenta     = "\033[35m"
+	cyan        = "\033[36m"
+	orange      = "\033[38;2;255;165;0m"
 )
 
 var console_file_path = "console.json"
@@ -911,13 +916,19 @@ func runSudoCommand(pass string) error {
 func Connect(chosen string, configPath string, folders Folders) {
 	chosen_type := ""
 
+	chosen = strings.TrimPrefix(chosen, "🛠️ ")
+	chosen = strings.TrimPrefix(chosen, "🌐 ")
+	chosen = strings.TrimPrefix(chosen, "📟 ")
+	chosen = strings.TrimPrefix(chosen, "🗂️ ")
 	chosenParts := strings.Split(chosen, " ")
+
 	if len(chosenParts) < 1 {
 		fmt.Println("Invalid item")
 		return
 	}
 
-	if !strings.Contains(chosen, "@") && strings.Contains(chosen, ">") {
+	fmt.Println("Connecting to", chosen)
+	if !strings.Contains(chosen, "@") && !strings.Contains(chosen, ">") {
 		chosen_type = "folder"
 	} else if !strings.Contains(chosen, "@") && strings.Contains(chosen, ">") {
 		chosen_type = "console"
@@ -1120,7 +1131,7 @@ func Connect(chosen string, configPath string, folders Folders) {
 		}
 
 	} else if chosen_type == "console" {
-
+		fmt.Println("console")
 		promptCommand := promptui.Select{
 			Label: "Select Command",
 			Size:  35,
@@ -1160,34 +1171,34 @@ func Connect(chosen string, configPath string, folders Folders) {
 					removeConsoleConfig(hostName)
 				}
 			}
-
 		}
+	} else {
+		fmt.Println(chosen_type)
 	}
 }
 
 func ExecTheUI(configPath string, folders Folders) {
 
 	hosts := getHosts(configPath, folders)
-	items := getItems(hosts, folders)
+	items_to_show := getItems(hosts, folders)
 
 	if len(consoleConfigs) > 0 {
 		for _, c := range consoleConfigs {
-			items = append(items, fmt.Sprintf("%s %v>%v %s", c.Host, green, reset, c.BaudRate))
+			items_to_show = append(items_to_show, fmt.Sprintf("📟 %s %v>%v %s", c.Host, green, reset, c.BaudRate))
 		}
 	}
 
 	searcher := func(input string, index int) bool {
-		item := items[index]
+		item := items_to_show[index]
 		name := strings.ReplaceAll(strings.ToLower(item), " ", "")
 		input = strings.ReplaceAll(strings.ToLower(input), " ", "")
-
 		return strings.Contains(name, input)
 	}
 
 	prompt := promptui.Select{
 		Label:    "Select Host",
 		Searcher: searcher,
-		Items:    items,
+		Items:    items_to_show,
 		Size:     35,
 		Templates: &promptui.SelectTemplates{
 			Label:    "{{ . }}?",
@@ -1223,6 +1234,9 @@ func ExecTheUI(configPath string, folders Folders) {
 	if chosen_type == "folder" {
 
 		sshconfigInFolder := []SSHConfig{}
+		chosen = strings.ReplaceAll(chosen, magenta, "")
+		chosen = strings.ReplaceAll(chosen, reset, "")
+		chosen = strings.TrimPrefix(chosen, "🗂️ ")
 		for _, f := range folders {
 			if f.Name == chosen {
 				for _, sshconfig := range hosts {
@@ -1250,7 +1264,7 @@ func ExecTheUI(configPath string, folders Folders) {
 			Size:     35,
 			Templates: &promptui.SelectTemplates{
 				Label:    "{{ . }}?",
-				Active:   "\U0001F534 {{ . | cyan }} (press enter to select)",
+				Active:   "\U0001F534 {{ . | cyan }}",
 				Inactive: "  {{ . | cyan }}",
 				Selected: "\U0001F7E2 {{ . | red | cyan }}",
 			},
@@ -1355,6 +1369,18 @@ func getItems(hosts []SSHConfig, folders Folders) []string {
 
 	maxHostLen += 1
 	maxUserLen += 1
+
+	for _, f := range folders {
+		for _, host := range hosts {
+			if host.Folder == f.Name {
+				items = append(items, fmt.Sprintf("🗂️ %s%s%s", magenta, f.Name, reset)) //suggest folder icon here
+				break
+			}
+		}
+	}
+
+	sort.Strings(items)
+
 	for _, host := range hosts {
 		isFlat := true
 		for _, p := range folders {
@@ -1368,22 +1394,13 @@ func getItems(hosts []SSHConfig, folders Folders) []string {
 		}
 
 		if len(host.HostName) > 0 && len(host.User) > 0 && len(host.Port) > 0 && host.Port != "22" {
-			items = append(items, fmt.Sprintf("%-*s %v>%v %-*s%v@%v %s -p %v", maxHostLen, host.Host, green, reset, maxUserLen, host.User, red, reset, host.HostName, host.Port))
+			items = append(items, fmt.Sprintf("🌐 %-*s %v>%v %-*s%v@%v %s -p %v", maxHostLen, host.Host, green, reset, maxUserLen, host.User, red, reset, host.HostName, host.Port))
 		} else if len(host.HostName) > 0 && len(host.User) > 0 {
-			items = append(items, fmt.Sprintf("%-*s %v>%v %-*s%v@%v %s", maxHostLen, host.Host, green, reset, maxUserLen, host.User, red, reset, host.HostName))
+			items = append(items, fmt.Sprintf("🌐 %-*s %v>%v %-*s%v@%v %s", maxHostLen, host.Host, green, reset, maxUserLen, host.User, red, reset, host.HostName))
 		} else if len(host.HostName) > 0 {
-			items = append(items, fmt.Sprintf("%-*s %v>%v %s", maxHostLen, host.Host, green, reset, host.HostName))
+			items = append(items, fmt.Sprintf("🌐 %-*s %v>%v %s", maxHostLen, host.Host, green, reset, host.HostName))
 		} else {
-			items = append(items, host.Host)
-		}
-	}
-
-	for _, f := range folders {
-		for _, host := range hosts {
-			if host.Folder == f.Name {
-				items = append(items, f.Name)
-				break
-			}
+			items = append(items, fmt.Sprintf("🛠️ %s", host.Host))
 		}
 	}
 
@@ -1392,16 +1409,9 @@ func getItems(hosts []SSHConfig, folders Folders) []string {
 
 func customPanicHandler() {
 	if r := recover(); r != nil {
-		// Get the stack trace
 		stack := debug.Stack()
-
-		// Remove file paths from the stack trace
 		sanitizedStack := removePaths(stack)
-
-		// Log or print the sanitized stack trace
 		fmt.Printf("Panic: %v\n%s", r, sanitizedStack)
-
-		// Optionally, exit the program
 		os.Exit(1)
 	}
 }
