@@ -1181,12 +1181,6 @@ func ExecTheUI(configPath string, folders Folders) {
 	hosts := getHosts(configPath, folders)
 	items_to_show := getItems(hosts, folders)
 
-	if len(consoleConfigs) > 0 {
-		for _, c := range consoleConfigs {
-			items_to_show = append(items_to_show, fmt.Sprintf("📟 %s %v>%v %s", c.Host, green, reset, c.BaudRate))
-		}
-	}
-
 	searcher := func(input string, index int) bool {
 		item := items_to_show[index]
 		name := strings.ReplaceAll(strings.ToLower(item), " ", "")
@@ -1372,7 +1366,7 @@ func getItems(hosts []SSHConfig, folders Folders) []string {
 	for _, f := range folders {
 		for _, host := range hosts {
 			if host.Folder == f.Name {
-				items = append(items, fmt.Sprintf("🗂️ %s%s%s", magenta, f.Name, reset)) //suggest folder icon here
+				items = append(items, fmt.Sprintf("🗂️ %s %s%s", magenta, f.Name, reset)) //suggest folder icon here
 				break
 			}
 		}
@@ -1393,13 +1387,19 @@ func getItems(hosts []SSHConfig, folders Folders) []string {
 		}
 
 		if len(host.HostName) > 0 && len(host.User) > 0 && len(host.Port) > 0 && host.Port != "22" {
-			items = append(items, fmt.Sprintf("🌐 %-*s %v>%v %-*s%v@%v %s -p %v", maxHostLen, host.Host, green, reset, maxUserLen, host.User, red, reset, host.HostName, host.Port))
+			items = append(items, fmt.Sprintf("🌐 %v%-*s >%v %-*s%v@%v %s -p %v", green, maxHostLen, host.Host, reset, maxUserLen, host.User, red, reset, host.HostName, host.Port))
 		} else if len(host.HostName) > 0 && len(host.User) > 0 {
-			items = append(items, fmt.Sprintf("🌐 %-*s %v>%v %-*s%v@%v %s", maxHostLen, host.Host, green, reset, maxUserLen, host.User, red, reset, host.HostName))
+			items = append(items, fmt.Sprintf("🌐 %v%-*s >%v %-*s%v@%v %s", green, maxHostLen, host.Host, reset, maxUserLen, host.User, red, reset, host.HostName))
 		} else if len(host.HostName) > 0 {
-			items = append(items, fmt.Sprintf("🌐 %-*s %v>%v %s", maxHostLen, host.Host, green, reset, host.HostName))
+			items = append(items, fmt.Sprintf("🌐 %v%-*s >%v %s", green, maxHostLen, host.Host, reset, host.HostName))
 		} else {
 			items = append(items, fmt.Sprintf("🛠️ %s", host.Host))
+		}
+	}
+
+	if len(consoleConfigs) > 0 {
+		for _, c := range consoleConfigs {
+			items = append(items, fmt.Sprintf("📟 %v%-*s >%v %v", yellow, maxHostLen, c.Host, reset, c.BaudRate))
 		}
 	}
 
