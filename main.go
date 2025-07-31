@@ -835,7 +835,7 @@ func moveToFolder(hostName string, folders Folders) {
 		Items: FolderList,
 		Templates: &promptui.SelectTemplates{
 			Label:    "{{ . }}?",
-			Active:   "\U0001F534 {{ . | cyan }} (press enter to select)",
+			Active:   "\U0001F534 {{ . | cyan }}",
 			Inactive: "  {{ . | cyan }}",
 			Selected: "\U0001F7E2 {{ . | red | cyan }}",
 		},
@@ -913,13 +913,33 @@ func runSudoCommand(pass string) error {
 	return nil
 }
 
+func cleanTheString(s string) string {
+
+	// remove colors
+	s = strings.ReplaceAll(s, magenta, "")
+	s = strings.ReplaceAll(s, green, "")
+	s = strings.ReplaceAll(s, red, "")
+	s = strings.ReplaceAll(s, yellow, "")
+	s = strings.ReplaceAll(s, reset, "")
+
+	// remove icons
+	s = strings.TrimPrefix(s, "🛠️ ")
+	s = strings.TrimPrefix(s, "🌐 ")
+	s = strings.TrimPrefix(s, "📟 ")
+	s = strings.TrimPrefix(s, "🗂️ ")
+
+	// remove spaces
+	s = strings.TrimSpace(s)
+
+	return s
+}
+
 func Connect(chosen string, configPath string, folders Folders) {
+
 	chosen_type := ""
 
-	chosen = strings.TrimPrefix(chosen, "🛠️ ")
-	chosen = strings.TrimPrefix(chosen, "🌐 ")
-	chosen = strings.TrimPrefix(chosen, "📟 ")
-	chosen = strings.TrimPrefix(chosen, "🗂️ ")
+	chosen = cleanTheString(chosen)
+
 	chosenParts := strings.Split(chosen, " ")
 
 	if len(chosenParts) < 1 {
@@ -936,6 +956,9 @@ func Connect(chosen string, configPath string, folders Folders) {
 	}
 
 	hostName := chosenParts[0]
+	fmt.Println(chosen)
+	fmt.Println(chosenParts)
+	fmt.Println(hostName)
 
 	if chosen_type == "ssh" {
 		promptCommand := promptui.Select{
@@ -944,7 +967,7 @@ func Connect(chosen string, configPath string, folders Folders) {
 			Items: []string{"SSH", "SFTP (os native)", "SFTP (text UI)", "Ping", "TCPing", "Edit Profile", "Set Password", "Reveal Password", "Remove Profile", "Set Folder"},
 			Templates: &promptui.SelectTemplates{
 				Label:    "{{ . }}?",
-				Active:   "\U0001F534 {{ . | cyan }} (press enter to select)",
+				Active:   "\U0001F534 {{ . | cyan }}",
 				Inactive: "  {{ . | cyan }}",
 				Selected: "\U0001F7E2 {{ . | red | cyan }}",
 			},
@@ -1137,7 +1160,7 @@ func Connect(chosen string, configPath string, folders Folders) {
 			Items: []string{"Connect via cu", "Edit Profile", "Remove Profile"},
 			Templates: &promptui.SelectTemplates{
 				Label:    "{{ . }}?",
-				Active:   "\U0001F534 {{ . | cyan }} (press enter to select)",
+				Active:   "\U0001F534 {{ . | cyan }}",
 				Inactive: "  {{ . | cyan }}",
 				Selected: "\U0001F7E2 {{ . | red | cyan }}",
 			},
@@ -1179,7 +1202,7 @@ func Connect(chosen string, configPath string, folders Folders) {
 func ExecTheUI(configPath string, folders Folders) {
 
 	hosts := getHosts(configPath, folders)
-	items_to_show := getItems(hosts, folders)
+	items_to_show := getItems(hosts, folders, false)
 
 	searcher := func(input string, index int) bool {
 		item := items_to_show[index]
@@ -1195,7 +1218,7 @@ func ExecTheUI(configPath string, folders Folders) {
 		Size:     35,
 		Templates: &promptui.SelectTemplates{
 			Label:    "{{ . }}?",
-			Active:   "\U0001F534 {{ . | cyan }} (press enter to select)",
+			Active:   "\U0001F534 {{ . | cyan }}",
 			Inactive: "  {{ . | cyan }}",
 			Selected: "\U0001F7E2 {{ . | red | cyan }}",
 		},
@@ -1227,9 +1250,8 @@ func ExecTheUI(configPath string, folders Folders) {
 	if chosen_type == "folder" {
 
 		sshconfigInFolder := []SSHConfig{}
-		chosen = strings.ReplaceAll(chosen, magenta, "")
-		chosen = strings.ReplaceAll(chosen, reset, "")
-		chosen = strings.TrimPrefix(chosen, "🗂️ ")
+		chosen = cleanTheString(chosen)
+
 		for _, f := range folders {
 			if f.Name == chosen {
 				for _, sshconfig := range hosts {
@@ -1240,7 +1262,7 @@ func ExecTheUI(configPath string, folders Folders) {
 			}
 		}
 
-		submenu_items := getItems(sshconfigInFolder, Folders{})
+		submenu_items := getItems(sshconfigInFolder, Folders{}, true)
 
 		submenu_searcher := func(input string, index int) bool {
 			item := submenu_items[index]
@@ -1342,7 +1364,7 @@ func getHosts(sshConfigPath string, folders Folders) []SSHConfig {
 	return hosts
 }
 
-func getItems(hosts []SSHConfig, folders Folders) []string {
+func getItems(hosts []SSHConfig, folders Folders, isSubmenu bool) []string {
 
 	items := make([]string, 0)
 
@@ -1397,9 +1419,11 @@ func getItems(hosts []SSHConfig, folders Folders) []string {
 		}
 	}
 
-	if len(consoleConfigs) > 0 {
-		for _, c := range consoleConfigs {
-			items = append(items, fmt.Sprintf("📟 %v%-*s >%v %v", yellow, maxHostLen, c.Host, reset, c.BaudRate))
+	if !isSubmenu {
+		if len(consoleConfigs) > 0 {
+			for _, c := range consoleConfigs {
+				items = append(items, fmt.Sprintf("📟 %v%-*s >%v %v", yellow, maxHostLen, c.Host, reset, c.BaudRate))
+			}
 		}
 	}
 
