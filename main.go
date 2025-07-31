@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 	"slices"
 	"sort"
 	"sshcli/pkgs/sftp_ui"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -48,6 +50,7 @@ type SSHConfig struct {
 	HostName     string
 	User         string
 	Port         string
+	Proxy        string
 	IdentityFile string
 	Password     string
 	Folder       string
@@ -405,6 +408,7 @@ func updateSSHConfig(configPath string, config SSHConfig) error {
 
 	// Process existing config line by line
 	for i, line := range lines {
+
 		trimmedLine := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmedLine, "Host ") {
 			if inHostBlock {
@@ -419,8 +423,14 @@ func updateSSHConfig(configPath string, config SSHConfig) error {
 		}
 
 		if inHostBlock {
+			if config.Proxy == "" && strings.Contains(trimmedLine, "Proxy") {
+				continue
+			}
 			// Parse and potentially update each field in the host block
 			field, value := parseField(trimmedLine)
+			if strings.Contains(field, "Proxy") {
+				value = config.Proxy
+			}
 			if newValue := getUpdatedValue(config, field); newValue != "" {
 				newLines = append(newLines, fmt.Sprintf("    %s %s", field, newValue))
 				updatedFields[field] = true
@@ -481,6 +491,8 @@ func getUpdatedValue(config SSHConfig, field string) string {
 		return config.HostName
 	case "user":
 		return config.User
+	case "proxycommand":
+		return config.Proxy
 	case "port":
 		return config.Port
 	case "identityfile":
@@ -498,15 +510,23 @@ func addMissingFields(config SSHConfig, updatedFields map[string]bool) []string 
 	if config.HostName != "" && !updatedFields["HostName"] {
 		missingFields = append(missingFields, fmt.Sprintf("    HostName %s", config.HostName))
 	}
+
 	if config.User != "" && !updatedFields["User"] {
 		missingFields = append(missingFields, fmt.Sprintf("    User %s", config.User))
 	}
+
 	if config.Port != "" && !updatedFields["Port"] {
 		missingFields = append(missingFields, fmt.Sprintf("    Port %s", config.Port))
 	}
+
+	if config.Proxy != "" && !updatedFields["ProxyCommand"] {
+		missingFields = append(missingFields, fmt.Sprintf("    ProxyCommand %s", config.Proxy))
+	}
+
 	if config.IdentityFile != "" && !updatedFields["IdentityFile"] {
 		missingFields = append(missingFields, fmt.Sprintf("    IdentityFile %s", config.IdentityFile))
 	}
+
 	// Add other fields as needed
 	return missingFields
 }
@@ -627,6 +647,7 @@ func createFile(filePath string) error {
 func handleExitSignal(err error) {
 	if strings.EqualFold(strings.TrimSpace(err.Error()), "^C") {
 		fmt.Println("Closed the prompt.")
+		os.Exit(0)
 	} else {
 		fmt.Printf("Prompt failed %v\n", err)
 	}
@@ -639,13 +660,11 @@ func getSSHConfigPath() (string, error) {
 	}
 
 	d := filepath.Join(homeDir, ".ssh")
-	p := filepath.Join(d, "config")
-	c := filepath.Join(d, "console.json")
-
 	if _, err := os.Stat(d); err != nil {
 		log.Fatalf("failed to find/access the config file path: %v", d)
 	}
 
+	p := filepath.Join(d, "config")
 	if _, err := os.Stat(p); err != nil {
 		fmt.Printf("failed to find/access the config file path: %v. Trying to create it...\n", d)
 
@@ -663,6 +682,8 @@ func getSSHConfigPath() (string, error) {
 
 		updateSSHConfig(p, defaultConfig)
 	}
+
+	c := filepath.Join(d, "console.json")
 
 	if runtime.GOOS == "darwin" && checkShellCommands("cu") == nil {
 		if _, err := os.Stat(c); err != nil {
@@ -819,6 +840,81 @@ func AddProfileToFolder(data Folders, folderName string, newProfile string) Fold
 	return data
 }
 
+func IsProxyValid(s string) bool {
+
+	parts := strings.Split(s, ":")
+
+	if len(parts) < 2 {
+		return false
+	}
+
+	portStr := parts[len(parts)-1]
+	ipStr := strings.Join(parts[:len(parts)-1], ":")
+
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false
+	}
+
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return false
+	}
+
+	if port < 1 || port > 65535 {
+		return false
+	}
+
+	return true
+}
+
+func AddProxyToProfile(hostName, configPath string, folders Folders) {
+	var proxy string
+	fmt.Print("Enter http proxy IP:Port (eg. 10.10.10.10:8080): ")
+	scanner := bufio.NewScanner(os.Stdin)
+	if scanner.Scan() {
+		proxy = scanner.Text()
+	}
+
+	if err := scanner.Err(); err != nil {
+		fmt.Fprintln(os.Stderr, "Error reading the proxy from stdin:", err)
+	}
+
+	if !IsProxyValid(proxy) {
+		fmt.Println("Proxy string was not fromatted properly!")
+		os.Exit(0)
+	}
+
+	proxy = "nc -X connect -x " + proxy + " %h %p"
+
+	h, err := extractHost(hostName, configPath, folders)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	h.Proxy = proxy
+
+	if err := updateSSHConfig(configPath, h); err != nil {
+		fmt.Println("Error adding/updating profile:", err)
+		os.Exit(1)
+	}
+}
+
+func DeleteProxyFromProfile(hostName, configPath string, folders Folders) {
+
+	h, err := extractHost(hostName, configPath, folders)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	h.Proxy = ""
+
+	if err := updateSSHConfig(configPath, h); err != nil {
+		fmt.Println("Error adding/updating profile:", err)
+		os.Exit(1)
+	}
+}
+
 func moveToFolder(hostName string, folders Folders) {
 
 	FolderList := make([]string, 0, len(folders))
@@ -934,7 +1030,7 @@ func cleanTheString(s string) string {
 	return s
 }
 
-func Connect(chosen string, configPath string, folders Folders) {
+func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfig) {
 
 	chosen_type := ""
 
@@ -956,15 +1052,12 @@ func Connect(chosen string, configPath string, folders Folders) {
 	}
 
 	hostName := chosenParts[0]
-	fmt.Println(chosen)
-	fmt.Println(chosenParts)
-	fmt.Println(hostName)
 
 	if chosen_type == "ssh" {
 		promptCommand := promptui.Select{
 			Label: "Select Command",
 			Size:  35,
-			Items: []string{"SSH", "SFTP (os native)", "SFTP (text UI)", "Ping", "TCPing", "Edit Profile", "Set Password", "Reveal Password", "Remove Profile", "Set Folder"},
+			Items: []string{"SSH", "SFTP (os native)", "SFTP (text UI)", "Ping", "TCPing", "Edit Profile", "Set Password", "Set http proxy", "Remove http proxy", "Reveal Password", "Remove Profile", "Set Folder"},
 			Templates: &promptui.SelectTemplates{
 				Label:    "{{ . }}?",
 				Active:   "\U0001F534 {{ . | cyan }}",
@@ -1007,6 +1100,10 @@ func Connect(chosen string, configPath string, folders Folders) {
 
 			os.Exit(0)
 
+		} else if strings.EqualFold(command, "Set http proxy") {
+			AddProxyToProfile(hostName, configPath, folders)
+		} else if strings.EqualFold(command, "Remove http proxy") {
+			DeleteProxyFromProfile(hostName, configPath, folders)
 		} else if strings.EqualFold(command, "Set Password") {
 
 			fmt.Print("\nEnter password: ")
@@ -1195,7 +1292,7 @@ func Connect(chosen string, configPath string, folders Folders) {
 			}
 		}
 	} else if chosen_type == "folder" {
-		fmt.Println("Nested folders are not supported yet!")
+		navigateToNext(chosen, folders, hosts, configPath)
 	}
 }
 
@@ -1231,12 +1328,15 @@ func ExecTheUI(configPath string, folders Folders) {
 		return
 	}
 
+	navigateToNext(chosen, folders, hosts, configPath)
+}
+
+func navigateToNext(chosen string, folders Folders, hosts []SSHConfig, configPath string) {
 	chosen_type := ""
 
 	chosenParts := strings.Split(chosen, " ")
 	if len(chosenParts) < 1 {
 		fmt.Println("Invalid item")
-		return
 	}
 
 	if !strings.Contains(chosen, "@") && !strings.Contains(chosen, ">") {
@@ -1248,7 +1348,6 @@ func ExecTheUI(configPath string, folders Folders) {
 	}
 
 	if chosen_type == "folder" {
-
 		sshconfigInFolder := []SSHConfig{}
 		chosen = cleanTheString(chosen)
 
@@ -1289,12 +1388,11 @@ func ExecTheUI(configPath string, folders Folders) {
 
 		if err != nil {
 			handleExitSignal(err)
-			return
 		}
 
-		Connect(submenu_chosen, configPath, folders)
+		Connect(submenu_chosen, configPath, folders, hosts)
 	} else {
-		Connect(chosen, configPath, folders)
+		Connect(chosen, configPath, folders, hosts)
 	}
 }
 
@@ -1343,6 +1441,8 @@ func getHosts(sshConfigPath string, folders Folders) []SSHConfig {
 				currentHost.User = after
 			} else if after, ok := strings.CutPrefix(line, "Port "); ok {
 				currentHost.Port = after
+			} else if after, ok := strings.CutPrefix(line, "ProxyCommand "); ok {
+				currentHost.Proxy = after
 			} else if after, ok := strings.CutPrefix(line, "IdentityFile "); ok {
 				currentHost.IdentityFile = after
 			}
@@ -1397,6 +1497,11 @@ func getItems(hosts []SSHConfig, folders Folders, isSubmenu bool) []string {
 	sort.Strings(items)
 
 	for _, host := range hosts {
+
+		if len(host.HostName) == 0 {
+			continue
+		}
+
 		isFlat := true
 		for _, p := range folders {
 			if host.Folder == p.Name {
@@ -1408,15 +1513,23 @@ func getItems(hosts []SSHConfig, folders Folders, isSubmenu bool) []string {
 			continue
 		}
 
-		if len(host.HostName) > 0 && len(host.User) > 0 && len(host.Port) > 0 && host.Port != "22" {
-			items = append(items, fmt.Sprintf("🌐 %v%-*s >%v %-*s%v@%v %s -p %v", green, maxHostLen, host.Host, reset, maxUserLen, host.User, red, reset, host.HostName, host.Port))
-		} else if len(host.HostName) > 0 && len(host.User) > 0 {
-			items = append(items, fmt.Sprintf("🌐 %v%-*s >%v %-*s%v@%v %s", green, maxHostLen, host.Host, reset, maxUserLen, host.User, red, reset, host.HostName))
-		} else if len(host.HostName) > 0 {
-			items = append(items, fmt.Sprintf("🌐 %v%-*s >%v %s", green, maxHostLen, host.Host, reset, host.HostName))
-		} else {
-			items = append(items, fmt.Sprintf("🛠️ %s", host.Host))
+		item := fmt.Sprintf("🌐 %v%-*s >%v ", green, maxHostLen, host.Host, reset)
+
+		if len(host.User) > 0 {
+			item += fmt.Sprintf("%-*s%s@%s", maxUserLen, host.User, red, reset)
 		}
+
+		item += " " + host.HostName
+
+		if len(host.Port) > 0 && host.Port != "22" {
+			item += fmt.Sprintf(" -p %v", host.Port)
+		}
+
+		if len(host.Proxy) > 0 {
+			item += " (HTTP PROXY)"
+		}
+
+		items = append(items, item)
 	}
 
 	if !isSubmenu {
@@ -1516,7 +1629,8 @@ func main() {
 
 	defer writeUpdatedPassDbToFile()
 	homeDir, _ := os.UserHomeDir()
-	file, err := os.OpenFile(homeDir+"/sshcli.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	logFilePath := filepath.Join(homeDir, "sshcli.log")
+	file, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -1559,11 +1673,10 @@ func main() {
 		log.Fatalln(err)
 	}
 
-	if console_file_path, err = updateFilePath(console_file_path); err != nil {
-		fmt.Println(err)
-	}
-
 	if runtime.GOOS == "darwin" && checkShellCommands("cu") == nil {
+		if console_file_path, err = updateFilePath(console_file_path); err != nil {
+			fmt.Println(err)
+		}
 		consoleConfigs, err = readConsoleProfile()
 		if err != nil {
 			log.Fatalln(err)
@@ -1571,7 +1684,10 @@ func main() {
 	}
 
 	consoleProfile, sshProfile, action, profileType := processCliArgs()
-	defer writeUpdatedConsoleDBToFile()
+
+	if runtime.GOOS == "darwin" && checkShellCommands("cu") == nil {
+		defer writeUpdatedConsoleDBToFile()
+	}
 
 	if *action != "" {
 		if sshProfile.Host == "" {
