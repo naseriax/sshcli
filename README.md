@@ -107,10 +107,7 @@ Usage of sshcli:
 - First execution: The tool looks for the required files/folders and creates them if not found
 ![first_run](https://github.com/user-attachments/assets/657fb9c2-9b6b-479e-b494-8ff06f47cd58)
 
-- How to add a new ssh/sftp profile - Method #1
-![add_1](https://github.com/user-attachments/assets/0c2a4154-e20d-4209-9db7-f73b10cce177)
-
-- How to add a new ssh/sftp profile - Method #2
+- How to add a new ssh/sftp profile
 ![add_2](https://github.com/user-attachments/assets/14fd740c-9180-448b-b9d2-a58094808a2f)
 
 - How to edit an existing ssh/sftp profile
@@ -121,10 +118,3 @@ Usage of sshcli:
 
 - How to organize ssh/sftp profiles using folders
 ![folder](https://github.com/user-attachments/assets/22449de7-acc2-4224-8d16-778427ad1fc7)
-
-
-
-
-
-
-
