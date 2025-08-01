@@ -289,7 +289,7 @@ func editProfile(profileName, configPath string, folders Folders) error {
 			if newHost.Host == config.Host {
 				fmt.Printf("Modified profile for %s\n", profileName)
 			} else {
-				fmt.Printf("A new profile with a the name:%s has been added\n", newHost.Host)
+				fmt.Printf("A new profile:%s has been added\n", newHost.Host)
 			}
 		} else {
 			fmt.Printf("The edited file is not valid, hence the profile %s was not modified.\n", profileName)
