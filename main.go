@@ -160,8 +160,9 @@ func readFolderDb() (Folders, error) {
 	if len(data) != 0 {
 		err = json.Unmarshal(data, &folder)
 		if err != nil {
-			log.Fatalf("error unmarshalling folderdb json: %v", err)
-			return folder, fmt.Errorf("error unmarshalling JSON: %v", err)
+			fmt.Printf("error unmarshalling folderdb json: %v\n", err)
+			os.Exit(1)
+			// return folder, fmt.Errorf("error unmarshalling JSON: %v", err)
 		}
 	}
 
@@ -278,7 +279,8 @@ func editProfile(profileName, configPath string, folders Folders) error {
 		if len(newHosts) > 0 {
 			newHost = newHosts[0]
 		} else {
-			log.Fatalf("the file has no valid ssh/sftp profile")
+			fmt.Println("the file has no valid ssh/sftp profile")
+			os.Exit(1)
 		}
 
 		if newHost.Host != "" {
@@ -369,7 +371,8 @@ func editConsoleProfile(profileName string) error {
 		if len(newHost) != 0 {
 			err = json.Unmarshal(newHost, &c)
 			if err != nil {
-				log.Fatalf("error unmarshalling JSON for consoleConfigs: %v", err)
+				fmt.Printf("error unmarshalling JSON for consoleConfigs: %v\n", err)
+				os.Exit(1)
 			}
 		}
 
@@ -572,7 +575,8 @@ func deleteSSHProfile(host string) error {
 	// Get the user's home directory
 	configPath, err := getSSHConfigPath()
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println(err)
+		os.Exit(1)
 	}
 	// Read existing config file
 	content, err := os.ReadFile(configPath)
@@ -905,7 +909,8 @@ func AddProxyToProfile(hostName, configPath string, folders Folders) {
 
 	h, err := extractHost(hostName, configPath, folders)
 	if err != nil {
-		log.Fatalln(err)
+		fmt.Println(err)
+		os.Exit(1)
 	}
 
 	h.Proxy = proxy
@@ -920,7 +925,8 @@ func DeleteProxyFromProfile(hostName, configPath string, folders Folders) {
 
 	h, err := extractHost(hostName, configPath, folders)
 	if err != nil {
-		log.Fatalln(err)
+		fmt.Println(err)
+		os.Exit(1)
 	}
 
 	h.Proxy = ""
@@ -1145,7 +1151,8 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 		} else if strings.EqualFold(command, "ping") {
 			h, err := extractHost(hostName, configPath, folders)
 			if err != nil {
-				log.Fatalln(err)
+				fmt.Println(err)
+				os.Exit(1)
 			}
 			cmd := *exec.Command(strings.ToLower(command), h.HostName)
 			cmd.Stdin = os.Stdin
@@ -1161,7 +1168,8 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 				port := "22"
 				h, err := extractHost(hostName, configPath, folders)
 				if err != nil {
-					log.Fatalln(err)
+					fmt.Println(err)
+					os.Exit(1)
 				}
 				if h.Port != "" {
 					port = h.Port
@@ -1176,7 +1184,8 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 
 			h, err := extractHost(hostName, configPath, folders)
 			if err != nil {
-				log.Fatalln(err)
+				fmt.Println(err)
+				os.Exit(1)
 			}
 
 			if h.Port == "" {
@@ -1217,7 +1226,8 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 				} else {
 					fmt.Println(err.Error())
 				}
-				log.Fatalln(err)
+				fmt.Println(err)
+				os.Exit(1)
 			}
 
 		} else {
@@ -1227,7 +1237,8 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 
 			// make sure sftp or ssh commands are availble in the shell
 			if err := checkShellCommands(command); err != nil {
-				log.Fatalln(err.Error())
+				fmt.Println(err.Error())
+				os.Exit(1)
 			}
 
 			cmd := *exec.Command(command, hostName)
@@ -1254,7 +1265,7 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 				}
 
 				if password != `''` {
-					cmd = *exec.Command("sshpass", "-p", password, command, hostName)
+					cmd = *exec.Command("sshpass", "-p", password, strings.ToLower(command), "-o", "StrictHostKeyChecking=no", hostName)
 					method = "password"
 				}
 			}
@@ -1427,7 +1438,8 @@ func getHosts(sshConfigPath string, folders Folders) []SSHConfig {
 
 	file, err := os.Open(sshConfigPath)
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println(err)
+		os.Exit(1)
 	}
 	defer file.Close()
 
@@ -1471,7 +1483,8 @@ func getHosts(sshConfigPath string, folders Folders) []SSHConfig {
 	}
 
 	if err := scanner.Err(); err != nil {
-		log.Fatal(err)
+		fmt.Println(err)
+		os.Exit(1)
 	}
 
 	sort.Slice(hosts, func(i, j int) bool {
@@ -1584,7 +1597,8 @@ func removePaths(stack []byte) []byte {
 func readConsoleProfile() (ConsoleConfigs, error) {
 
 	if _, err := os.Stat(console_file_path); err != nil {
-		log.Fatalf("failed to create/access the console file: %v", console_file_path)
+		fmt.Printf("failed to create/access the console file: %v\n", console_file_path)
+		os.Exit(1)
 	}
 
 	data, err := os.ReadFile(console_file_path)
@@ -1595,8 +1609,9 @@ func readConsoleProfile() (ConsoleConfigs, error) {
 	if len(data) != 0 {
 		err = json.Unmarshal(data, &consoleConfigs)
 		if err != nil {
-			log.Fatalf("error unmarshalling JSON: %v", err)
-			return consoleConfigs, fmt.Errorf("error unmarshalling JSON: %v", err)
+			fmt.Printf("error unmarshalling JSON: %v\n", err)
+			os.Exit(1)
+			// return consoleConfigs, fmt.Errorf("error unmarshalling JSON: %v", err)
 		}
 	}
 
@@ -1649,22 +1664,27 @@ func main() {
 	logFilePath := filepath.Join(homeDir, "sshcli.log")
 	file, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println(err)
+		os.Exit(1)
 	}
 	defer file.Close()
 
 	log.SetOutput(file)
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
+	consoleProfile, sshProfile, action, profileType := processCliArgs()
+
 	configPath, err := getSSHConfigPath()
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println(err.Error())
+		os.Exit(1)
 	}
 
 	// Load or generate the encryption key
 	key, err = loadOrGenerateKey()
 	if err != nil {
-		log.Fatalln(err.Error())
+		fmt.Println(err.Error())
+		os.Exit(1)
 	}
 
 	// Findout and set the full path for the passwords.json file
@@ -1681,13 +1701,15 @@ func main() {
 	// Read the passwords.json file
 	hostPasswords, err = readPassFile()
 	if err != nil {
-		log.Fatalln(err)
+		fmt.Println("Can't read the password file!")
+		log.Println("Can't read the password file!")
 	}
 
 	// Read the folderdb.json file
 	folders, err := readFolderDb()
 	if err != nil {
-		log.Fatalln(err)
+		fmt.Println("Can't read the folder database")
+		folders = Folders{}
 	}
 
 	if runtime.GOOS == "darwin" && checkShellCommands("cu") == nil {
@@ -1696,11 +1718,9 @@ func main() {
 		}
 		consoleConfigs, err = readConsoleProfile()
 		if err != nil {
-			log.Fatalln(err)
+			fmt.Println("Can't read/access the console config file")
 		}
 	}
-
-	consoleProfile, sshProfile, action, profileType := processCliArgs()
 
 	if runtime.GOOS == "darwin" && checkShellCommands("cu") == nil {
 		defer writeUpdatedConsoleDBToFile()

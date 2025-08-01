@@ -118,7 +118,8 @@ func readPassFile() (HostPasswords, error) {
 		fmt.Printf(" [!] %sIt seems no password database file was created before, so here is one: %v\n%s", green, dataFile, reset)
 
 		if err := createFile(dataFile); err != nil {
-			log.Fatalf(" [!] %sfailed to create/access the password database file: %v%s", red, dataFile, reset)
+			fmt.Printf(" [!] %sfailed to create/access the password database file: %v%s\n", red, dataFile, reset)
+			os.Exit(1)
 		}
 	}
 
@@ -130,8 +131,9 @@ func readPassFile() (HostPasswords, error) {
 	if len(data) != 0 {
 		err = json.Unmarshal(data, &hostPasswords)
 		if err != nil {
-			log.Fatalf("error unmarshalling JSON: %v", err)
-			return hostPasswords, fmt.Errorf("error unmarshalling JSON: %v", err)
+			fmt.Printf("error unmarshalling JSON: %v\n", err)
+			os.Exit(1)
+			// return hostPasswords, fmt.Errorf("error unmarshalling JSON: %v", err)
 		}
 	}
 
