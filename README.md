@@ -103,7 +103,7 @@ Usage of sshcli:
   mods = "Alt"
   chars = "sshcli\n"
 ```
-### Some instructions
+### Some instructions (wait for them to load)
 - First execution: The tool looks for the required files/folders and creates them if not found
 ![first_run](https://github.com/user-attachments/assets/657fb9c2-9b6b-479e-b494-8ff06f47cd58)
 
