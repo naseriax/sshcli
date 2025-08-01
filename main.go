@@ -1110,12 +1110,17 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 				log.Println(err.Error())
 			}
 
+			if len(password) == 0 {
+				fmt.Printf("There is no password stored for this profile\n")
+				os.Exit(0)
+			}
+
 			if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
 				err := runSudoCommand(password)
 				if err != nil {
 					fmt.Printf("Error executing sudo command: %v\n", err)
 				}
-				fmt.Println("Password for", hostName, "has been copied to MacOS clipboard.")
+				fmt.Println("Password for", hostName, "has been copied to the clipboard.")
 			} else {
 				fmt.Println("Password for", hostName, ":", password)
 			}
