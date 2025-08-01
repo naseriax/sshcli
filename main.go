@@ -760,32 +760,20 @@ func fixKeyPath(keyPath string) string {
 }
 
 func processCliArgs() (ConsoleConfig, SSHConfig, *string, string) {
+
 	action := flag.String("action", "", "Action to perform: add, remove")
-
 	host := flag.String("host", "", "Host alias")
-
 	hostname := flag.String("hostname", "", "HostName or IP address")
-
 	password := flag.Bool("askpass", false, "Password prompt")
-
 	username := flag.String("username", "", "Username")
-
 	port := flag.String("port", "", "Port Number")
-
 	identityFile := flag.String("key", "", "IdentityFile path")
-
 	BaudRate := flag.String("baudrate", "9600", "BaudRate, default is 9600")
-
 	DataBits := flag.String("data_bits", "8", "databits, default is 8")
-
 	StopBit := flag.String("stop_bit", "1", "stop bit, default is 1")
-
 	Parity := flag.String("parity", "none", "parity, default is none")
-
 	device := flag.String("device", "/dev/tty.usbserial-1140", "device path, default is /dev/tty.usbserial-1140")
-
 	version := flag.Bool("version", false, "prints the compile time (version)")
-
 	profileType := flag.String("type", "ssh", "profile type, can be ssh or console, default is ssh")
 
 	flag.Parse()
@@ -1080,7 +1068,7 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 		promptCommand := promptui.Select{
 			Label: "Select Command",
 			Size:  35,
-			Items: []string{"SSH", "SFTP (os native)", "SFTP (text UI)", "Ping", "TCPing", "Edit Profile", "Set Password", "Set http proxy", "Set Folder", "Reveal Password", "Remove http proxy", "Remove Profile"},
+			Items: []string{"SSH", "SFTP (os native)", "SFTP (text UI)", "Ping", "TCPing", "ssh-copy-id", "Edit Profile", "Set Password", "Set http proxy", "Set Folder", "Reveal Password", "Remove http proxy", "Remove Profile"},
 			Templates: &promptui.SelectTemplates{
 				Label:    "{{ . }}?",
 				Active:   "\U0001F534 {{ . | cyan }}",
@@ -1184,6 +1172,51 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 				cmd.Stderr = os.Stderr
 				cmd.Run()
 			}
+		} else if strings.EqualFold(strings.ToLower(command), "ssh-copy-id") {
+			// make sure ssh-copy-id is availble in the shell
+			if err := checkShellCommands("ssh-copy-id"); err != nil {
+				fmt.Println(err.Error())
+				os.Exit(1)
+			}
+
+			h, err := extractHost(hostName, configPath, folders)
+			if err != nil {
+				fmt.Println(err)
+				os.Exit(1)
+			}
+
+			if len(h.IdentityFile) == 0 {
+				fmt.Println("No identity file specified.")
+				fmt.Println("using the default ~/.ssh/id_rsa file")
+				home, _ := os.UserHomeDir()
+				h.IdentityFile = filepath.Join(home, ".ssh", "id_rsa")
+			}
+
+			if h.Port == "" {
+				h.Port = "22"
+			}
+
+			if strings.HasPrefix(h.IdentityFile, "~") {
+				homeDir, _ := os.UserHomeDir()
+				h.IdentityFile = strings.ReplaceAll(h.IdentityFile, "~", homeDir)
+			}
+
+			password, err := EncryptOrDecryptPassword(hostName, key, "dec")
+			if err != nil {
+				log.Println(err.Error())
+			}
+
+			cmd := *exec.Command("sshpass", "-p", password, "ssh-copy-id", "-i", h.IdentityFile, "-p", h.Port, h.User+"@"+h.HostName)
+
+			if len(password) == 0 {
+				fmt.Printf("There is no password stored for this profile\n")
+				cmd = *exec.Command("ssh-copy-id", "-i", h.IdentityFile, "-p", h.Port, h.User+"@"+h.HostName)
+			}
+
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			cmd.Run()
 		} else if strings.EqualFold(strings.ToLower(command), "sftp (text UI)") {
 
 			h, err := extractHost(hostName, configPath, folders)
@@ -1234,6 +1267,7 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 				os.Exit(1)
 			}
 
+			//
 		} else {
 			if strings.EqualFold(command, "sftp (os native)") {
 				command = "sftp"
