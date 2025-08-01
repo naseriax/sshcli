@@ -49,7 +49,7 @@ func loadOrGenerateKey() ([]byte, error) {
 	if err != nil {
 		return key, fmt.Errorf("error writing key file: %v", err)
 	}
-	fmt.Println("A new key has been generated")
+	fmt.Printf(" [>] %sA new password database encryption key has been generated and saved to:%s%s\n", green, keyFile, reset)
 
 	return key, nil
 }
@@ -115,10 +115,10 @@ func updateFilePath(fileName string) (string, error) {
 func readPassFile() (HostPasswords, error) {
 
 	if _, err := os.Stat(dataFile); err != nil {
-		fmt.Printf("It seems no password database file was created before, so here is one: %v. Trying to create it...\n", dataFile)
+		fmt.Printf(" [!] %sIt seems no password database file was created before, so here is one: %v\n%s", green, dataFile, reset)
 
 		if err := createFile(dataFile); err != nil {
-			log.Fatalf("failed to create/access the password database file: %v", dataFile)
+			log.Fatalf(" [!] %sfailed to create/access the password database file: %v%s", red, dataFile, reset)
 		}
 	}
 

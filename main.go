@@ -144,10 +144,11 @@ func readFolderDb() (Folders, error) {
 	folder := Folders{}
 
 	if _, err := os.Stat(folderdb); err != nil {
-		fmt.Printf("It seems no folder database file was created before, so here is one: %v. Trying to create it...\n", folderdb)
+		fmt.Printf(" [!] %sIt seems no folder database file was created before, so here is one: %v\n%s", green, folderdb, reset)
 
 		if err := createFile(folderdb); err != nil {
-			log.Fatalf("failed to create/access the folder database file: %v", folderdb)
+			fmt.Printf(" [!] %sfailed to create/access the folder database file: %v%s", red, folderdb, reset)
+			os.Exit(1)
 		}
 	}
 
@@ -281,6 +282,7 @@ func editProfile(profileName, configPath string, folders Folders) error {
 		}
 
 		if newHost.Host != "" {
+			doConfigBackup()
 			deleteSSHProfile(newHost.Host)
 			updateSSHConfig(configPath, newHost)
 
@@ -643,7 +645,7 @@ func createFile(filePath string) error {
 	}
 	defer file.Close()
 
-	fmt.Printf("The %v file created successfully\n", filePath)
+	fmt.Printf(" [>] The %v file has been created successfully\n", filePath)
 	return nil
 }
 
@@ -664,15 +666,25 @@ func getSSHConfigPath() (string, error) {
 
 	d := filepath.Join(homeDir, ".ssh")
 	if _, err := os.Stat(d); err != nil {
-		log.Fatalf("failed to find/access the config file path: %v", d)
+		fmt.Printf(" [!] %sCould not find/access the ssh config file path: %s. Creating it...\n%s", green, d, reset)
+		err := os.Mkdir(d, 0755)
+		if err != nil {
+			fmt.Printf(" [!] %sError creating directory '%s': %v\n%s", red, d, err, reset)
+			os.Exit(1)
+		} else {
+			fmt.Printf(" [>] %sSuccessfully created the .ssh directory '%s'.\n%s", green, d, reset)
+		}
 	}
+	// fmt.Printf(" [!] %sCould not find/access the ssh config file path: %s\n [>] Please create it manually using mkdir -p %s%s\n", yellow, d, reset, d)
+	// os.Exit(1)
 
 	p := filepath.Join(d, "config")
 	if _, err := os.Stat(p); err != nil {
-		fmt.Printf("Could not find the config file in: %v. Creating it...\n", p)
+		fmt.Printf(" [!] %sCould not find the ssh config file: %v. Creating it...\n%s", green, p, reset)
 
 		if err := createFile(p); err != nil {
-			log.Fatalf("failed to create/access the config file : %v", p)
+			fmt.Printf("%sfailed to create/access the config file : %v%s", red, p, reset)
+			os.Exit(1)
 		}
 
 		defaultConfig := SSHConfig{
@@ -690,10 +702,11 @@ func getSSHConfigPath() (string, error) {
 
 	if runtime.GOOS == "darwin" && checkShellCommands("cu") == nil {
 		if _, err := os.Stat(c); err != nil {
-			fmt.Printf("failed to find/access the console file path: %v. Trying to create it...\n", c)
+			fmt.Printf(" [!] %sCould not find the console profile database: %v. Creating it...\n%s", green, c, reset)
 
 			if err := createFile(c); err != nil {
-				log.Fatalf("failed to create/access the console file path: %v", c)
+				fmt.Printf("%sfailed to create/access the console file: %v%s", red, c, reset)
+				os.Exit(1)
 			}
 		}
 	}
@@ -932,6 +945,7 @@ func moveToFolder(hostName string, folders Folders) {
 	prompt := promptui.Select{
 		Label: "Select Folder",
 		Items: FolderList,
+		Size:  20,
 		Templates: &promptui.SelectTemplates{
 			Label:    "{{ . }}?",
 			Active:   "\U0001F534 {{ . | cyan }}",
@@ -1060,7 +1074,7 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 		promptCommand := promptui.Select{
 			Label: "Select Command",
 			Size:  35,
-			Items: []string{"SSH", "SFTP (os native)", "SFTP (text UI)", "Ping", "TCPing", "Edit Profile", "Set Password", "Set http proxy", "Remove http proxy", "Reveal Password", "Remove Profile", "Set Folder"},
+			Items: []string{"SSH", "SFTP (os native)", "SFTP (text UI)", "Ping", "TCPing", "Edit Profile", "Set Password", "Set http proxy", "Set Folder", "Reveal Password", "Remove http proxy", "Remove Profile"},
 			Templates: &promptui.SelectTemplates{
 				Label:    "{{ . }}?",
 				Active:   "\U0001F534 {{ . | cyan }}",
