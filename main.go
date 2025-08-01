@@ -1110,8 +1110,7 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 				log.Println(err.Error())
 			}
 
-			if runtime.GOOS == "darwin" {
-
+			if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
 				err := runSudoCommand(password)
 				if err != nil {
 					fmt.Printf("Error executing sudo command: %v\n", err)
