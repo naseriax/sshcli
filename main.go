@@ -547,6 +547,9 @@ func generateHostBlock(config SSHConfig) []string {
 	if config.IdentityFile != "" {
 		block = append(block, fmt.Sprintf("    IdentityFile %s", config.IdentityFile))
 	}
+	if config.Proxy != "" {
+		block = append(block, fmt.Sprintf("    ProxyCommand %s", config.Proxy))
+	}
 	// Add other fields as needed
 	return block
 }
