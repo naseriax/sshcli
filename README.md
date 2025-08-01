@@ -104,7 +104,7 @@ Usage of sshcli:
   chars = "sshcli\n"
 ```
 ### Some instructions
-- First execution: The tool looks for the requres files/folder and creates them if not found.
+- First execution: The tool looks for the required files/folders and creates them if not found
 ![first_run](https://github.com/user-attachments/assets/657fb9c2-9b6b-479e-b494-8ff06f47cd58)
 
 - How to add a new ssh/sftp profile - Method #1
