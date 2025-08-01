@@ -669,10 +669,10 @@ func getSSHConfigPath() (string, error) {
 
 	p := filepath.Join(d, "config")
 	if _, err := os.Stat(p); err != nil {
-		fmt.Printf("failed to find/access the config file path: %v. Trying to create it...\n", d)
+		fmt.Printf("Could not find the config file in: %v. Creating it...\n", p)
 
 		if err := createFile(p); err != nil {
-			log.Fatalf("failed to create/access the config file path: %v", d)
+			log.Fatalf("failed to create/access the config file : %v", p)
 		}
 
 		defaultConfig := SSHConfig{
