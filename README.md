@@ -103,4 +103,28 @@ Usage of sshcli:
   mods = "Alt"
   chars = "sshcli\n"
 ```
+### Some instructions
+- First execution: The tool looks for the requres files/folder and creates them if not found.
+![first_run](https://github.com/user-attachments/assets/657fb9c2-9b6b-479e-b494-8ff06f47cd58)
+
+- How to add a new ssh/sftp profile - Method #1
+![add_1](https://github.com/user-attachments/assets/0c2a4154-e20d-4209-9db7-f73b10cce177)
+
+- How to add a new ssh/sftp profile - Method #2
+![add_2](https://github.com/user-attachments/assets/14fd740c-9180-448b-b9d2-a58094808a2f)
+
+- How to edit an existing ssh/sftp profile
+![edit](https://github.com/user-attachments/assets/94b49447-96d9-4846-b583-33b16fcd63ac)
+
+- How to remove an existing ssh/sftp profile
+![delete](https://github.com/user-attachments/assets/4d610185-8bcf-41bb-833c-b5e55d4c8cc7)
+
+- How to organize ssh/sftp profiles using folders
+![folder](https://github.com/user-attachments/assets/22449de7-acc2-4224-8d16-778427ad1fc7)
+
+
+
+
+
+
 
