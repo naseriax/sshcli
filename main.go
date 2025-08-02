@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -20,6 +21,8 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+
+	_ "modernc.org/sqlite"
 
 	"github.com/manifoldco/promptui"
 	"golang.org/x/term"
@@ -43,6 +46,12 @@ var folderdb = "folderdb.json"
 var CompileTime = ""
 var passAuthSupported = true
 var key []byte
+var db *sql.DB
+var folderIcon = "🗂️"
+var sshIcon = "🌐"
+var consoleIcon = "📟"
+
+// var gearIcon = "🛠️"
 
 // SSHConfig represents the configuration for an SSH host entry
 type SSHConfig struct {
@@ -81,8 +90,66 @@ type Folders []struct {
 
 type ConsoleConfigs []ConsoleConfig
 
+// initDB opens a connection to the SQLite database and ensures all necessary
+// tables are created. It's designed to be idempotent.
+func initDB(filepath string) error {
+	var err error
+	// Open the database file. It will be created if it doesn't exist.
+	db, err = sql.Open("sqlite", filepath)
+	if err != nil {
+		return fmt.Errorf("failed to open database: %w", err)
+	}
+
+	// A map of table names to their CREATE statements for clarity and organization.
+	tables := map[string]string{
+		"credentials": `
+		CREATE TABLE IF NOT EXISTS credentials (
+			host TEXT PRIMARY KEY,
+			password TEXT NOT NULL,
+			is_encrypted BOOLEAN NOT NULL DEFAULT TRUE
+		);`,
+
+		"encryption_key": `
+		CREATE TABLE IF NOT EXISTS encryption_key (
+			id INTEGER PRIMARY KEY CHECK (id = 1), -- Ensures only one row can exist
+			key BLOB NOT NULL
+		);`,
+
+		"console_profiles": `
+		CREATE TABLE IF NOT EXISTS console_profiles (
+			host TEXT PRIMARY KEY,
+			baud_rate INTEGER NOT NULL,
+			device TEXT NOT NULL,
+			parity TEXT,
+			stop_bit TEXT,
+			data_bits INTEGER,
+			folder TEXT
+		);`,
+
+		// This schema allows for a nested folder structure.
+		// A NULL parent_id indicates a root-level folder.
+		"folder_structure": `
+		CREATE TABLE IF NOT EXISTS folder_structure (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			parent_id INTEGER,
+			FOREIGN KEY (parent_id) REFERENCES folder_structure(id) ON DELETE CASCADE
+		);`,
+	}
+
+	// Execute each CREATE TABLE statement.
+	for name, stmt := range tables {
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("failed to create table '%s': %w", name, err)
+		}
+	}
+
+	fmt.Println("✅ Database and tables initialized successfully.")
+	return nil
+}
+
 func doConfigBackup() error {
-	configFilePath, err := getSSHConfigPath()
+	configFilePath, err := setupFilesFolders()
 	if err != nil {
 		return fmt.Errorf("failed to get the config file path")
 	}
@@ -139,6 +206,174 @@ func overWriteFolderDb(folders Folders) error {
 	return nil
 }
 
+func OpenSqlCli() {
+
+	// Ping the database to verify the connection is alive.
+	err := db.Ping()
+	if err != nil {
+		log.Fatalf("Error connecting to database: %v", err)
+	}
+
+	fmt.Printf("Connected to SQLite database\n")
+	fmt.Println("Enter SQL commands. Type 'exit' or 'quit' to close the CLI.")
+	fmt.Println("Type '.tables' to list all tables.")
+
+	scanner := bufio.NewScanner(os.Stdin) // Create a new scanner to read input from stdin.
+
+	// Start an infinite loop to continuously prompt for SQL commands.
+	for {
+		fmt.Print("SQL> ") // Prompt the user for input.
+		if !scanner.Scan() {
+			break // Break the loop if there's no more input (e.g., EOF).
+		}
+
+		command := strings.TrimSpace(scanner.Text()) // Read the line and trim leading/trailing whitespace.
+		lowerCommand := strings.ToLower(command)
+
+		// Check for exit commands.
+		if lowerCommand == "exit" || lowerCommand == "quit" {
+			fmt.Println("Exiting SQL CLI.")
+			break // Exit the loop and the function.
+		}
+
+		// Check for exit commands.
+		if lowerCommand == "exit" || lowerCommand == "quit" {
+			fmt.Println("Exiting SQL CLI.")
+			break // Exit the loop and the function.
+		}
+		if lowerCommand == ".tables" {
+			rows, err := db.Query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;")
+			if err != nil {
+				fmt.Printf("Error listing tables: %v\n", err)
+				continue
+			}
+			defer rows.Close()
+
+			fmt.Println("Tables:")
+			var tableName string
+			for rows.Next() {
+				if err := rows.Scan(&tableName); err != nil {
+					fmt.Printf("Error scanning table name: %v\n", err)
+					continue
+				}
+				fmt.Printf("- %s\n", tableName)
+			}
+			if err = rows.Err(); err != nil {
+				fmt.Printf("Error iterating table rows: %v\n", err)
+			}
+			continue // Continue to the next prompt after listing tables.
+		}
+		if command == "" {
+			continue // If the command is empty, just prompt again.
+		}
+
+		// Determine if the command is a SELECT query.
+		// This is a simple check; a more robust solution might parse the SQL.
+		if strings.HasPrefix(strings.ToLower(command), "select") {
+			// Execute SELECT queries.
+			rows, err := db.Query(command)
+			if err != nil {
+				fmt.Printf("Error executing query: %v\n", err)
+				continue // Continue to the next iteration of the loop.
+			}
+			defer rows.Close() // Ensure rows are closed after processing.
+
+			// Get column names from the query result.
+			columns, err := rows.Columns()
+			if err != nil {
+				fmt.Printf("Error getting columns: %v\n", err)
+				continue
+			}
+
+			// Prepare a slice to hold column values.
+			// Each element is an interface{} because we don't know the exact type beforehand.
+			values := make([]any, len(columns))
+			// Prepare a slice of pointers to interface{} for scanning.
+			// This allows Scan to write to the values slice.
+			scanArgs := make([]any, len(columns))
+			for i := range values {
+				scanArgs[i] = &values[i]
+			}
+
+			// Calculate maximum column widths for pretty printing.
+			colWidths := make(map[string]int)
+			for _, col := range columns {
+				colWidths[col] = len(col) // Initialize with column name length.
+			}
+
+			// Store all rows to calculate max widths before printing.
+			var allRows [][]string
+			for rows.Next() {
+				err = rows.Scan(scanArgs...) // Scan the row into the scanArgs (which point to values).
+				if err != nil {
+					fmt.Printf("Error scanning row: %v\n", err)
+					continue
+				}
+
+				rowValues := make([]string, len(columns))
+				for i, val := range values {
+					// Handle potential nil values from the database.
+					if val == nil {
+						rowValues[i] = "NULL"
+					} else {
+						rowValues[i] = fmt.Sprintf("%v", val) // Convert value to string.
+					}
+					// Update max width for the current column.
+					if len(rowValues[i]) > colWidths[columns[i]] {
+						colWidths[columns[i]] = len(rowValues[i])
+					}
+				}
+				allRows = append(allRows, rowValues)
+			}
+
+			// Print header.
+			for _, col := range columns {
+				fmt.Printf("%-*s ", colWidths[col], col) // Left-align column name.
+			}
+			fmt.Println()
+
+			// Print separator line.
+			for _, col := range columns {
+				fmt.Printf("%s ", strings.Repeat("-", colWidths[col])) // Print dashes for separator.
+			}
+			fmt.Println()
+
+			// Print data rows.
+			for _, row := range allRows {
+				for i, val := range row {
+					fmt.Printf("%-*s ", colWidths[columns[i]], val) // Left-align data.
+				}
+				fmt.Println()
+			}
+
+			if err = rows.Err(); err != nil {
+				fmt.Printf("Error iterating rows: %v\n", err)
+			}
+
+		} else {
+			// Execute DML (INSERT, UPDATE, DELETE) and DDL queries.
+			result, err := db.Exec(command)
+			if err != nil {
+				fmt.Printf("Error executing command: %v\n", err)
+				continue
+			}
+
+			// Print results for DML operations.
+			rowsAffected, err := result.RowsAffected()
+			if err != nil {
+				fmt.Printf("Error getting rows affected: %v\n", err)
+			} else {
+				fmt.Printf("%d row(s) affected.\n", rowsAffected)
+			}
+		}
+
+		if scanner.Err() != nil {
+			fmt.Printf("Error reading input: %v\n", scanner.Err())
+			break
+		}
+	}
+}
+
 func readFolderDb() (Folders, error) {
 
 	folder := Folders{}
@@ -148,7 +383,7 @@ func readFolderDb() (Folders, error) {
 
 		if err := createFile(folderdb); err != nil {
 			fmt.Printf(" [!] %sfailed to create/access the folder database file: %v%s", red, folderdb, reset)
-			os.Exit(1)
+			return folder, fmt.Errorf("failed to create/access the folder database file: %v", err)
 		}
 	}
 
@@ -161,8 +396,7 @@ func readFolderDb() (Folders, error) {
 		err = json.Unmarshal(data, &folder)
 		if err != nil {
 			fmt.Printf("error unmarshalling folderdb json: %v\n", err)
-			os.Exit(1)
-			// return folder, fmt.Errorf("error unmarshalling JSON: %v", err)
+			return folder, fmt.Errorf("error unmarshalling folder JSON: %v", err)
 		}
 	}
 
@@ -280,7 +514,7 @@ func editProfile(profileName, configPath string, folders Folders) error {
 			newHost = newHosts[0]
 		} else {
 			fmt.Println("the file has no valid ssh/sftp profile")
-			os.Exit(1)
+			return fmt.Errorf("the file has no valid ssh/sftp profile")
 		}
 
 		if newHost.Host != "" {
@@ -372,7 +606,7 @@ func editConsoleProfile(profileName string) error {
 			err = json.Unmarshal(newHost, &c)
 			if err != nil {
 				fmt.Printf("error unmarshalling JSON for consoleConfigs: %v\n", err)
-				os.Exit(1)
+				return fmt.Errorf("error unmarshalling JSON for consoleConfigs: %v", err)
 			}
 		}
 
@@ -573,10 +807,10 @@ func generateConsoleHostBlock(config ConsoleConfig) []byte {
 // deleteSSHProfile removes a specified host and its parameters from the SSH config file
 func deleteSSHProfile(host string) error {
 	// Get the user's home directory
-	configPath, err := getSSHConfigPath()
+	configPath, err := setupFilesFolders()
 	if err != nil {
 		fmt.Println(err)
-		os.Exit(1)
+		return fmt.Errorf("failed to get the config file path: %w", err)
 	}
 	// Read existing config file
 	content, err := os.ReadFile(configPath)
@@ -636,7 +870,10 @@ func deleteSSHProfile(host string) error {
 		return fmt.Errorf("failed to write SSH config file: %w", err)
 	}
 
-	hostPasswords = removeValue(hostPasswords, host)
+	if err := removeValue(host); err != nil {
+		fmt.Println(err)
+		return fmt.Errorf("failed to remove the %v from the password database:%v", host, err)
+	}
 
 	return nil
 }
@@ -656,13 +893,12 @@ func createFile(filePath string) error {
 func handleExitSignal(err error) {
 	if strings.EqualFold(strings.TrimSpace(err.Error()), "^C") {
 		fmt.Println("Closed the prompt.")
-		os.Exit(0)
 	} else {
 		fmt.Printf("Prompt failed %v\n", err)
 	}
 }
 
-func getSSHConfigPath() (string, error) {
+func setupFilesFolders() (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get user home directory: %w", err)
@@ -674,13 +910,11 @@ func getSSHConfigPath() (string, error) {
 		err := os.Mkdir(d, 0755)
 		if err != nil {
 			fmt.Printf(" [!] %sError creating directory '%s': %v\n%s", red, d, err, reset)
-			os.Exit(1)
+			return "", fmt.Errorf("failed to create/access the .ssh directory: %w", err)
 		} else {
 			fmt.Printf(" [>] %sSuccessfully created the .ssh directory '%s'.\n%s", green, d, reset)
 		}
 	}
-	// fmt.Printf(" [!] %sCould not find/access the ssh config file path: %s\n [>] Please create it manually using mkdir -p %s%s\n", yellow, d, reset, d)
-	// os.Exit(1)
 
 	p := filepath.Join(d, "config")
 	if _, err := os.Stat(p); err != nil {
@@ -688,7 +922,7 @@ func getSSHConfigPath() (string, error) {
 
 		if err := createFile(p); err != nil {
 			fmt.Printf("%sfailed to create/access the config file : %v%s", red, p, reset)
-			os.Exit(1)
+			return "", fmt.Errorf("failed to create/access the config file: %w", err)
 		}
 
 		defaultConfig := SSHConfig{
@@ -710,7 +944,7 @@ func getSSHConfigPath() (string, error) {
 
 			if err := createFile(c); err != nil {
 				fmt.Printf("%sfailed to create/access the console file: %v%s", red, c, reset)
-				os.Exit(1)
+				return "", fmt.Errorf("failed to create/access the console file: %w", err)
 			}
 		}
 	}
@@ -774,7 +1008,9 @@ func processCliArgs() (ConsoleConfig, SSHConfig, *string, string) {
 	Parity := flag.String("parity", "none", "parity, default is none")
 	device := flag.String("device", "/dev/tty.usbserial-1140", "device path, default is /dev/tty.usbserial-1140")
 	version := flag.Bool("version", false, "prints the compile time (version)")
+	sql := flag.Bool("sql", false, "Access SQL file")
 	profileType := flag.String("type", "ssh", "profile type, can be ssh or console, default is ssh")
+	proxy := flag.String("httpproxy", "", "http proxy to be used for the ssh/sftp over http connectivity (optional),eg. 10.10.10.10:8000")
 
 	flag.Parse()
 
@@ -783,7 +1019,14 @@ func processCliArgs() (ConsoleConfig, SSHConfig, *string, string) {
 		os.Exit(0)
 	}
 
+	if *sql {
+		OpenSqlCli()
+		db.Close()
+		os.Exit(0)
+	}
+
 	var passString string
+
 	if *password {
 		fmt.Print("Enter password: ")
 		bytePassword, err := term.ReadPassword(int(syscall.Stdin))
@@ -795,30 +1038,40 @@ func processCliArgs() (ConsoleConfig, SSHConfig, *string, string) {
 		passString = string(bytePassword)
 	}
 
-	consoleProfile := ConsoleConfig{
-		Host:     *host,
-		BaudRate: *BaudRate,
-		Device:   *device,
-		Parity:   *Parity,
-		StopBit:  *StopBit,
-		DataBits: *DataBits,
+	var consoleProfile ConsoleConfig
+	var sshProfile SSHConfig
+
+	switch strings.ToLower(*profileType) {
+	case "console":
+		consoleProfile = ConsoleConfig{
+			Host:     *host,
+			BaudRate: *BaudRate,
+			Device:   *device,
+			Parity:   *Parity,
+			StopBit:  *StopBit,
+			DataBits: *DataBits,
+		}
+	case "ssh":
+		sshProfile = SSHConfig{
+			Host:         *host,
+			HostName:     *hostname,
+			Password:     passString,
+			User:         *username,
+			Port:         *port,
+			IdentityFile: *identityFile,
+		}
+
+		if len(sshProfile.IdentityFile) > 0 {
+			cleanPath := fixKeyPath(sshProfile.IdentityFile)
+			sshProfile.IdentityFile = cleanPath
+		}
+
+		if len(*proxy) > 0 {
+			sshProfile.Proxy = "nc -X connect -x " + *proxy + " %h %p"
+		}
 	}
 
-	profile := SSHConfig{
-		Host:         *host,
-		HostName:     *hostname,
-		Password:     passString,
-		User:         *username,
-		Port:         *port,
-		IdentityFile: *identityFile,
-	}
-
-	if len(profile.IdentityFile) > 0 {
-		cleanPath := fixKeyPath(profile.IdentityFile)
-		profile.IdentityFile = cleanPath
-	}
-
-	return consoleProfile, profile, action, *profileType
+	return consoleProfile, sshProfile, action, *profileType
 }
 
 func containsProfile(slice []string, s string) bool {
@@ -876,7 +1129,7 @@ func IsProxyValid(s string) bool {
 	return true
 }
 
-func AddProxyToProfile(hostName, configPath string, folders Folders) {
+func AddProxyToProfile(hostName, configPath string, folders Folders) error {
 	var proxy string
 	fmt.Print("Enter http proxy IP:Port (eg. 10.10.10.10:8080): ")
 	scanner := bufio.NewScanner(os.Stdin)
@@ -890,7 +1143,7 @@ func AddProxyToProfile(hostName, configPath string, folders Folders) {
 
 	if !IsProxyValid(proxy) {
 		fmt.Println("Proxy string was not fromatted properly!")
-		os.Exit(0)
+		return fmt.Errorf("invalid proxy format")
 	}
 
 	proxy = "nc -X connect -x " + proxy + " %h %p"
@@ -898,34 +1151,37 @@ func AddProxyToProfile(hostName, configPath string, folders Folders) {
 	h, err := extractHost(hostName, configPath, folders)
 	if err != nil {
 		fmt.Println(err)
-		os.Exit(1)
+		return fmt.Errorf("error extracting host: %w", err)
 	}
 
 	h.Proxy = proxy
 
 	if err := updateSSHConfig(configPath, h); err != nil {
 		fmt.Println("Error adding/updating profile:", err)
-		os.Exit(1)
+		return fmt.Errorf("error adding/updating profile: %w", err)
 	}
+	return nil
 }
 
-func DeleteProxyFromProfile(hostName, configPath string, folders Folders) {
+func DeleteProxyFromProfile(hostName, configPath string, folders Folders) error {
 
 	h, err := extractHost(hostName, configPath, folders)
 	if err != nil {
 		fmt.Println(err)
-		os.Exit(1)
+		return fmt.Errorf("error extracting host: %w", err)
 	}
 
 	h.Proxy = ""
 
 	if err := updateSSHConfig(configPath, h); err != nil {
 		fmt.Println("Error adding/updating profile:", err)
-		os.Exit(1)
+		return fmt.Errorf("error adding/updating profile: %w", err)
 	}
+
+	return nil
 }
 
-func moveToFolder(hostName string, folders Folders) {
+func moveToFolder(hostName string, folders Folders) error {
 
 	FolderList := make([]string, 0, len(folders))
 	for _, folder := range folders {
@@ -951,7 +1207,7 @@ func moveToFolder(hostName string, folders Folders) {
 	_, folderName, err := prompt.Run()
 	if err != nil {
 		handleExitSignal(err)
-		return
+		return fmt.Errorf("error selecting folder: %w", err)
 	}
 
 	if strings.EqualFold(folderName, "New Folder") {
@@ -967,13 +1223,13 @@ func moveToFolder(hostName string, folders Folders) {
 
 		if len(name) == 0 {
 			fmt.Println("Empty name? really? Doing nothing!")
-			os.Exit(0)
+			return fmt.Errorf("invalid folder name")
 		}
 
 		for _, p := range folders {
 			if p.Name == name {
 				fmt.Println("Folder with name", name, "already exists. Doing nothing!")
-				os.Exit(0)
+				return fmt.Errorf("folder with name %s already exists", name)
 			}
 		}
 
@@ -991,20 +1247,14 @@ func moveToFolder(hostName string, folders Folders) {
 		folders = AddProfileToFolder(folders, folderName, hostName)
 	}
 
-	overWriteFolderDb(folders)
+	if err := overWriteFolderDb(folders); err != nil {
+		return fmt.Errorf("error overwriting folder db: %w", err)
+	}
+
+	return nil
 }
 
 func runSudoCommand(pass string) error {
-
-	// command := fmt.Sprintf("echo %s", pass)
-
-	// parts := strings.Fields(command)
-	// if len(parts) == 0 {
-	// 	return fmt.Errorf("command string is empty")
-	// }
-
-	// sudoCmdArgs := append([]string{parts[0]}, parts[1:]...)
-	// cmd := exec.Command("sudo", sudoCmdArgs...)
 
 	cmd := exec.Command("sudo", "pbcopy")
 	cmd.Stdin = bytes.NewBufferString(pass)
@@ -1020,7 +1270,7 @@ func runSudoCommand(pass string) error {
 	return nil
 }
 
-func cleanTheString(s string) string {
+func cleanTheString(s, mode string) string {
 
 	// remove colors
 	s = strings.ReplaceAll(s, magenta, "")
@@ -1030,10 +1280,11 @@ func cleanTheString(s string) string {
 	s = strings.ReplaceAll(s, reset, "")
 
 	// remove icons
-	s = strings.TrimPrefix(s, "🛠️ ")
-	s = strings.TrimPrefix(s, "🌐 ")
-	s = strings.TrimPrefix(s, "📟 ")
-	s = strings.TrimPrefix(s, "🗂️ ")
+	if strings.ToLower(mode) == "all" {
+		s = strings.TrimPrefix(s, sshIcon+" ")
+		s = strings.TrimPrefix(s, consoleIcon+" ")
+		s = strings.TrimPrefix(s, folderIcon+" ")
+	}
 
 	// remove spaces
 	s = strings.TrimSpace(s)
@@ -1041,28 +1292,31 @@ func cleanTheString(s string) string {
 	return s
 }
 
-func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfig) {
+func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfig) error {
 
 	chosen_type := ""
 
-	chosen = cleanTheString(chosen)
+	chosen = cleanTheString(chosen, "onlyColors")
 
 	chosenParts := strings.Split(chosen, " ")
 
 	if len(chosenParts) < 1 {
 		fmt.Println("Invalid item")
-		return
+		return fmt.Errorf("invalid item selected")
 	}
 
-	if !strings.Contains(chosen, "@") && !strings.Contains(chosen, ">") {
+	if strings.Contains(chosen, folderIcon) {
 		chosen_type = "folder"
-	} else if !strings.Contains(chosen, "@") && strings.Contains(chosen, ">") {
+	} else if strings.Contains(chosen, consoleIcon) {
 		chosen_type = "console"
-	} else {
+	} else if strings.Contains(chosen, sshIcon) {
 		chosen_type = "ssh"
+	} else {
+		fmt.Println("entry not implemented2")
+		return fmt.Errorf("unknown entry")
 	}
 
-	hostName := chosenParts[0]
+	hostName := chosenParts[1]
 
 	if chosen_type == "ssh" {
 		promptCommand := promptui.Select{
@@ -1080,7 +1334,7 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 		_, command, err := promptCommand.Run()
 		if err != nil {
 			handleExitSignal(err)
-			return
+			return fmt.Errorf("error running command prompt: %w", err)
 		}
 		if strings.EqualFold(command, "Set Folder") {
 			moveToFolder(hostName, folders)
@@ -1092,7 +1346,6 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 			deleteSSHProfile(hostName)
 
 		} else if strings.EqualFold(command, "Reveal Password") {
-
 			password, err := EncryptOrDecryptPassword(hostName, key, "dec")
 			if err != nil {
 				log.Println(err.Error())
@@ -1100,7 +1353,7 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 
 			if len(password) == 0 {
 				fmt.Printf("There is no password stored for this profile\n")
-				os.Exit(0)
+				return fmt.Errorf("no password stored for this profile")
 			}
 
 			if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
@@ -1113,8 +1366,6 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 				fmt.Println("Password for", hostName, ":", password)
 			}
 
-			os.Exit(0)
-
 		} else if strings.EqualFold(command, "Set http proxy") {
 			AddProxyToProfile(hostName, configPath, folders)
 		} else if strings.EqualFold(command, "Remove http proxy") {
@@ -1126,7 +1377,7 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 			fmt.Println()
 			if err != nil {
 				fmt.Println("Error reading password:", err)
-				os.Exit(1)
+				return fmt.Errorf("error reading password: %w", err)
 			}
 
 			passString := string(bytePassword)
@@ -1137,14 +1388,18 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 			}
 
 			updatePasswordDB(profile)
-			writeUpdatedPassDbToFile()
+			// writeUpdatedPassDbToFile()
+			if err := PushPasswordsToDB(); err != nil {
+				fmt.Println("Error pushing passwords to DB:", err)
+				return fmt.Errorf("error pushing passwords to DB: %w", err)
+			}
 			fmt.Println("\nPassword has been successfully added to the password database!")
 
 		} else if strings.EqualFold(command, "ping") {
 			h, err := extractHost(hostName, configPath, folders)
 			if err != nil {
 				fmt.Println(err)
-				os.Exit(1)
+				return fmt.Errorf("error extracting host: %w", err)
 			}
 			cmd := *exec.Command(strings.ToLower(command), h.HostName)
 			cmd.Stdin = os.Stdin
@@ -1161,7 +1416,7 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 				h, err := extractHost(hostName, configPath, folders)
 				if err != nil {
 					fmt.Println(err)
-					os.Exit(1)
+					return fmt.Errorf("error extracting host: %w", err)
 				}
 				if h.Port != "" {
 					port = h.Port
@@ -1176,13 +1431,13 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 			// make sure ssh-copy-id is availble in the shell
 			if err := checkShellCommands("ssh-copy-id"); err != nil {
 				fmt.Println(err.Error())
-				os.Exit(1)
+				return fmt.Errorf("ssh-copy-id command not found: %w", err)
 			}
 
 			h, err := extractHost(hostName, configPath, folders)
 			if err != nil {
 				fmt.Println(err)
-				os.Exit(1)
+				return fmt.Errorf("error extracting host: %w", err)
 			}
 
 			if len(h.IdentityFile) == 0 {
@@ -1222,7 +1477,7 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 			h, err := extractHost(hostName, configPath, folders)
 			if err != nil {
 				fmt.Println(err)
-				os.Exit(1)
+				return fmt.Errorf("error extracting host: %w", err)
 			}
 
 			if h.Port == "" {
@@ -1264,7 +1519,7 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 					fmt.Println(err.Error())
 				}
 				fmt.Println(err)
-				os.Exit(1)
+				return fmt.Errorf("error initializing SFTP: %w", err)
 			}
 
 			//
@@ -1276,7 +1531,7 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 			// make sure sftp or ssh commands are availble in the shell
 			if err := checkShellCommands(command); err != nil {
 				fmt.Println(err.Error())
-				os.Exit(1)
+				return fmt.Errorf("command not found: %w", err)
 			}
 
 			cmd := *exec.Command(command, hostName)
@@ -1332,7 +1587,7 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 		_, command, err := promptCommand.Run()
 		if err != nil {
 			handleExitSignal(err)
-			return
+			return fmt.Errorf("error running command prompt: %w", err)
 		}
 
 		if strings.ToLower(command) == "connect" {
@@ -1348,7 +1603,11 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 			}
 		} else if strings.ToLower(command) == "edit profile" {
 
-			editConsoleProfile(hostName)
+			err := editConsoleProfile(hostName)
+			if err != nil {
+				fmt.Println(err)
+				return fmt.Errorf("error editing console profile: %w", err)
+			}
 
 		} else if strings.ToLower(command) == "remove profile" {
 			for _, c := range consoleConfigs {
@@ -1358,11 +1617,15 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 			}
 		}
 	} else if chosen_type == "folder" {
-		navigateToNext(chosen, folders, hosts, configPath)
+		if err := navigateToNext(chosen, folders, hosts, configPath); err != nil {
+			return fmt.Errorf("error navigating to next folder: %w", err)
+		}
 	}
+
+	return nil
 }
 
-func ExecTheUI(configPath string, folders Folders) {
+func ExecTheUI(configPath string, folders Folders) error {
 
 	hosts := getHosts(configPath, folders)
 	items_to_show := getItems(hosts, folders, false)
@@ -1388,39 +1651,41 @@ func ExecTheUI(configPath string, folders Folders) {
 	}
 
 	_, chosen, err := prompt.Run()
-
 	if err != nil {
 		handleExitSignal(err)
-		return
+		return fmt.Errorf("error running host selection prompt: %w", err)
 	}
 
-	navigateToNext(chosen, folders, hosts, configPath)
+	if err := navigateToNext(chosen, folders, hosts, configPath); err != nil {
+		return fmt.Errorf("error navigating to next folder: %w", err)
+	}
+
+	return nil
+
 }
 
-func navigateToNext(chosen string, folders Folders, hosts []SSHConfig, configPath string) {
+func navigateToNext(chosen string, folders Folders, hosts []SSHConfig, configPath string) error {
 	chosen_type := ""
 
-	chosenParts := strings.Split(chosen, " ")
-	if len(chosenParts) < 1 {
-		fmt.Println("Invalid item")
-	}
-
-	if !strings.Contains(chosen, "@") && !strings.Contains(chosen, ">") {
+	if strings.Contains(chosen, folderIcon) {
 		chosen_type = "folder"
-	} else if !strings.Contains(chosen, "@") && strings.Contains(chosen, ">") {
+	} else if strings.Contains(chosen, consoleIcon) {
 		chosen_type = "console"
-	} else {
+	} else if strings.Contains(chosen, sshIcon) {
 		chosen_type = "ssh"
+	} else {
+		fmt.Println("Entry not implemented1")
+		return fmt.Errorf("unknown entery")
 	}
 
 	if chosen_type == "folder" {
 		sshconfigInFolder := []SSHConfig{}
-		chosen = cleanTheString(chosen)
+		CleanedChosen := cleanTheString(chosen, "all")
 
 		for _, f := range folders {
-			if f.Name == chosen {
+			if f.Name == CleanedChosen {
 				for _, sshconfig := range hosts {
-					if sshconfig.Folder == chosen {
+					if sshconfig.Folder == CleanedChosen {
 						sshconfigInFolder = append(sshconfigInFolder, sshconfig)
 					}
 				}
@@ -1451,15 +1716,15 @@ func navigateToNext(chosen string, folders Folders, hosts []SSHConfig, configPat
 		}
 
 		_, submenu_chosen, err := submenu_prompt.Run()
-
 		if err != nil {
-			handleExitSignal(err)
+			return fmt.Errorf("error running submenu prompt: %w", err)
 		}
-
 		Connect(submenu_chosen, configPath, folders, hosts)
 	} else {
 		Connect(chosen, configPath, folders, hosts)
 	}
+
+	return nil
 }
 
 func getFolderNameFromDB(name string, folders Folders) string {
@@ -1474,15 +1739,14 @@ func getFolderNameFromDB(name string, folders Folders) string {
 
 func getHosts(sshConfigPath string, folders Folders) []SSHConfig {
 
+	var hosts []SSHConfig
+	var currentHost *SSHConfig
 	file, err := os.Open(sshConfigPath)
 	if err != nil {
 		fmt.Println(err)
-		os.Exit(1)
+		return hosts
 	}
 	defer file.Close()
-
-	var hosts []SSHConfig
-	var currentHost *SSHConfig
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -1522,7 +1786,7 @@ func getHosts(sshConfigPath string, folders Folders) []SSHConfig {
 
 	if err := scanner.Err(); err != nil {
 		fmt.Println(err)
-		os.Exit(1)
+		return hosts
 	}
 
 	sort.Slice(hosts, func(i, j int) bool {
@@ -1556,7 +1820,7 @@ func getItems(hosts []SSHConfig, folders Folders, isSubmenu bool) []string {
 	for _, f := range folders {
 		for _, host := range hosts {
 			if host.Folder == f.Name {
-				items = append(items, fmt.Sprintf("🗂️ %s %s%s", magenta, f.Name, reset)) //suggest folder icon here
+				items = append(items, fmt.Sprintf("%s %s %s%s", folderIcon, magenta, f.Name, reset))
 				break
 			}
 		}
@@ -1581,7 +1845,7 @@ func getItems(hosts []SSHConfig, folders Folders, isSubmenu bool) []string {
 			continue
 		}
 
-		item := fmt.Sprintf("🌐 %v%-*s >%v ", green, maxHostLen, host.Host, reset)
+		item := fmt.Sprintf("%s %v%-*s >%v ", sshIcon, green, maxHostLen, host.Host, reset)
 
 		if len(host.User) > 0 {
 			item += fmt.Sprintf("%-*s%s@%s", maxUserLen, host.User, red, reset)
@@ -1603,7 +1867,7 @@ func getItems(hosts []SSHConfig, folders Folders, isSubmenu bool) []string {
 	if !isSubmenu {
 		if len(consoleConfigs) > 0 {
 			for _, c := range consoleConfigs {
-				items = append(items, fmt.Sprintf("📟 %v%-*s >%v %v", yellow, maxHostLen, c.Host, reset, c.BaudRate))
+				items = append(items, fmt.Sprintf("%s %v%-*s >%v %v", consoleIcon, yellow, maxHostLen, c.Host, reset, c.BaudRate))
 			}
 		}
 	}
@@ -1636,7 +1900,7 @@ func readConsoleProfile() (ConsoleConfigs, error) {
 
 	if _, err := os.Stat(console_file_path); err != nil {
 		fmt.Printf("failed to create/access the console file: %v\n", console_file_path)
-		os.Exit(1)
+		return consoleConfigs, fmt.Errorf("failed to create/access the console file: %v", console_file_path)
 	}
 
 	data, err := os.ReadFile(console_file_path)
@@ -1648,8 +1912,7 @@ func readConsoleProfile() (ConsoleConfigs, error) {
 		err = json.Unmarshal(data, &consoleConfigs)
 		if err != nil {
 			fmt.Printf("error unmarshalling JSON: %v\n", err)
-			os.Exit(1)
-			// return consoleConfigs, fmt.Errorf("error unmarshalling JSON: %v", err)
+			return consoleConfigs, fmt.Errorf("error unmarshalling JSON: %v", err)
 		}
 	}
 
@@ -1695,9 +1958,12 @@ func writeUpdatedConsoleDBToFile() error {
 
 func main() {
 
+	/* custompanicHandler hides developer's filesystem information from the stack trace
+	and only shows the panic message */
 	defer customPanicHandler()
 
-	defer writeUpdatedPassDbToFile()
+	//########################################## LOG #####################################################
+	// all log.Printx() operations arw written in ~/sshcli.log file instead of being printed on the screen
 	homeDir, _ := os.UserHomeDir()
 	logFilePath := filepath.Join(homeDir, "sshcli.log")
 	file, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
@@ -1710,25 +1976,32 @@ func main() {
 	log.SetOutput(file)
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-	consoleProfile, sshProfile, action, profileType := processCliArgs()
-
-	configPath, err := getSSHConfigPath()
+	//########################################## DBS #####################################################
+	// Here we initialize the database
+	configPath, err := setupFilesFolders()
 	if err != nil {
 		fmt.Println(err.Error())
-		os.Exit(1)
+		return
 	}
+	if err := initDB(filepath.Join(homeDir, ".ssh", "sshcli.db")); err != nil {
+		fmt.Printf("Fatal error during database initialization: %v\n", err)
+		return
+	}
+	defer db.Close()
 
-	// Load or generate the encryption key
+	// writeUpdatedPassDbToFile dumps the password database and its changes to to password file.
+	// defer writeUpdatedPassDbToFile()
+	defer PushPasswordsToDB()
+
+	//########################################## CLI #####################################################
+	// Here we read the cli aruguments
+	consoleProfile, sshProfile, action, profileType := processCliArgs()
+	//########################################## ENC #####################################################
+	// Load or generate the encryption key in the db
 	key, err = loadOrGenerateKey()
 	if err != nil {
 		fmt.Println(err.Error())
-		os.Exit(1)
-	}
-
-	// Findout and set the full path for the passwords.json file
-	if dataFile, err = updateFilePath(dataFile); err != nil {
-		fmt.Println(err.Error(), "only key authentication is supported.")
-		passAuthSupported = false
+		return
 	}
 
 	// Findout and set the full path for the folderdb.json file
@@ -1737,7 +2010,8 @@ func main() {
 	}
 
 	// Read the passwords.json file
-	hostPasswords, err = readPassFile()
+	// hostPasswords, err = readPassFile()
+	err = loadCredentials()
 	if err != nil {
 		fmt.Println("Can't read the password file!")
 		log.Println("Can't read the password file!")
@@ -1758,9 +2032,7 @@ func main() {
 		if err != nil {
 			fmt.Println("Can't read/access the console config file")
 		}
-	}
 
-	if runtime.GOOS == "darwin" && checkShellCommands("cu") == nil {
 		defer writeUpdatedConsoleDBToFile()
 	}
 
@@ -1776,12 +2048,11 @@ func main() {
 				case "ssh":
 					if err := updateSSHConfig(configPath, sshProfile); err != nil {
 						fmt.Println("Error adding/updating profile:", err)
-						os.Exit(1)
+						return
 					}
 
 					if sshProfile.Password != "" {
 						updatePasswordDB(sshProfile)
-						writeUpdatedPassDbToFile()
 						fmt.Println("\nPassword has been successfully added to the password database!")
 					}
 				case "console":
@@ -1795,7 +2066,10 @@ func main() {
 						fmt.Println("Error removing profile:", err)
 					}
 
-					hostPasswords = removeValue(hostPasswords, sshProfile.Host)
+					if err := removeValue(sshProfile.Host); err != nil {
+						fmt.Println(err)
+						return
+					}
 
 				case "console":
 					removeConsoleConfig(consoleProfile.Host)
