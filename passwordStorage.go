@@ -234,7 +234,12 @@ func removeValue(hostname string) error {
 		}
 	}
 
-	stmt, err := db.Prepare("DELETE FROM credentials WHERE host = ?;")
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+
+	stmt, err := tx.Prepare("DELETE FROM credentials WHERE host = ?;")
 	if err != nil {
 		return fmt.Errorf("failed to prepare delete statement: %w", err)
 	}
@@ -258,7 +263,7 @@ func removeValue(hostname string) error {
 		fmt.Printf("🗑️ Successfully deleted %d record(s) for host '%s'.\n", rowsAffected, hostname)
 	}
 
-	return nil
+	return tx.Commit()
 
 }
 
