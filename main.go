@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
@@ -105,8 +106,7 @@ func initDB(filepath string) error {
 		"credentials": `
 		CREATE TABLE IF NOT EXISTS credentials (
 			host TEXT PRIMARY KEY,
-			password TEXT NOT NULL,
-			is_encrypted BOOLEAN NOT NULL DEFAULT TRUE
+			password TEXT NOT NULL
 		);`,
 
 		"encryption_key": `
@@ -144,7 +144,6 @@ func initDB(filepath string) error {
 		}
 	}
 
-	fmt.Println("✅ Database and tables initialized successfully.")
 	return nil
 }
 
@@ -213,6 +212,23 @@ func OpenSqlCli() {
 	if err != nil {
 		log.Fatalf("Error connecting to database: %v", err)
 	}
+
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		// Blocks until a signal is received.
+		sig := <-sigs
+		log.Printf("Received signal: %v. Shutting down gracefully...", sig)
+
+		// 5. Perform cleanup actions here.
+		if db != nil {
+			db.Close()
+			fmt.Println("\nDatabase connection closed.")
+		}
+
+		os.Exit(0)
+	}()
 
 	fmt.Printf("Connected to SQLite database\n")
 	fmt.Println("Enter SQL commands. Type 'exit' or 'quit' to close the CLI.")
@@ -892,7 +908,7 @@ func createFile(filePath string) error {
 
 func handleExitSignal(err error) {
 	if strings.EqualFold(strings.TrimSpace(err.Error()), "^C") {
-		fmt.Println("Closed the prompt.")
+
 	} else {
 		fmt.Printf("Prompt failed %v\n", err)
 	}
@@ -1346,14 +1362,10 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 			deleteSSHProfile(hostName)
 
 		} else if strings.EqualFold(command, "Reveal Password") {
-			password, err := EncryptOrDecryptPassword(hostName, key, "dec")
-			if err != nil {
-				log.Println(err.Error())
-			}
+			password, err := readAndDecryptPassFromDB(hostName)
 
-			if len(password) == 0 {
-				fmt.Printf("There is no password stored for this profile\n")
-				return fmt.Errorf("no password stored for this profile")
+			if err != nil {
+				return err
 			}
 
 			if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
@@ -1388,12 +1400,10 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 			}
 
 			updatePasswordDB(profile)
-			// writeUpdatedPassDbToFile()
-			if err := PushPasswordsToDB(); err != nil {
-				fmt.Println("Error pushing passwords to DB:", err)
-				return fmt.Errorf("error pushing passwords to DB: %w", err)
+			if err := encryptAndPushPassToDB(hostName, passString); err != nil {
+				fmt.Println("FAILED!")
+				return fmt.Errorf("failed to push the password to db in set password for the host %v:%v", hostName, err)
 			}
-			fmt.Println("\nPassword has been successfully added to the password database!")
 
 		} else if strings.EqualFold(command, "ping") {
 			h, err := extractHost(hostName, configPath, folders)
@@ -1456,9 +1466,9 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 				h.IdentityFile = strings.ReplaceAll(h.IdentityFile, "~", homeDir)
 			}
 
-			password, err := EncryptOrDecryptPassword(hostName, key, "dec")
+			password, err := decrypt(hostName)
 			if err != nil {
-				log.Println(err.Error())
+				return err
 			}
 
 			cmd := *exec.Command("sshpass", "-p", password, "ssh-copy-id", "-i", h.IdentityFile, "-p", h.Port, h.User+"@"+h.HostName)
@@ -1500,9 +1510,9 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 
 					if p.Host == hostName {
 						// Decrypt the password if ecnrypted and store it in password variable
-						password, err = EncryptOrDecryptPassword(p.Host, key, "dec")
+						password, err = readAndDecryptPassFromDB(hostName)
 						if err != nil {
-							log.Println(err.Error())
+							return err
 						}
 						break
 					}
@@ -1549,9 +1559,9 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 				for _, p := range hostPasswords {
 					if p.Host == hostName {
 						// Decrypt the password if ecnrypted and store it in password variable
-						password, err = EncryptOrDecryptPassword(p.Host, key, "dec")
+						password, err = readAndDecryptPassFromDB(hostName)
 						if err != nil {
-							log.Println(err.Error())
+							return err
 						}
 						break
 					}
@@ -1719,9 +1729,13 @@ func navigateToNext(chosen string, folders Folders, hosts []SSHConfig, configPat
 		if err != nil {
 			return fmt.Errorf("error running submenu prompt: %w", err)
 		}
-		Connect(submenu_chosen, configPath, folders, hosts)
+		if err := Connect(submenu_chosen, configPath, folders, hosts); err != nil {
+			return fmt.Errorf("error connecting to host '%s': %w", submenu_chosen, err)
+		}
 	} else {
-		Connect(chosen, configPath, folders, hosts)
+		if err := Connect(chosen, configPath, folders, hosts); err != nil {
+			return fmt.Errorf("error connecting to host '%s': %w", chosen, err)
+		}
 	}
 
 	return nil
@@ -1956,6 +1970,63 @@ func writeUpdatedConsoleDBToFile() error {
 	return nil
 }
 
+func encryptAndPushPassToDB(hostname, password string) error {
+	if len(password) == 0 {
+		return fmt.Errorf("password is empty")
+	}
+
+	if len(hostname) == 0 {
+		return fmt.Errorf("host is empty")
+	}
+
+	encryptedString, err := encrypt([]byte(password))
+	if err != nil {
+		err = fmt.Errorf("error encrypting password: %v", err)
+		return err
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin the db transaction for password insertion:%v", err)
+	}
+
+	stmt, err := tx.Prepare("INSERT INTO credentials(host,password) VALUES(?,?) ON CONFLICT(host) DO UPDATE SET password = excluded.password;")
+	if err != nil {
+		return fmt.Errorf("failed to prepare the db for password insertion:%v", err)
+	}
+	defer stmt.Close()
+
+	_, err = stmt.Exec(hostname, encryptedString)
+	if err != nil {
+		return fmt.Errorf("failed to insert the password for the host %v: %v", hostname, err)
+	}
+
+	fmt.Println("\nPassword has been successfully added to the password database!")
+	return tx.Commit()
+}
+
+func readAndDecryptPassFromDB(host string) (string, error) {
+	var password string
+
+	query := "SELECT password FROM credentials WHERE host = ?"
+
+	row := db.QueryRow(query, host)
+	err := row.Scan(&password)
+
+	if err == sql.ErrNoRows {
+		return "", fmt.Errorf("no password found for host: %s", host)
+	} else if err != nil {
+		return "", fmt.Errorf("read password query failed: %w", err)
+	}
+
+	clearTextPassword, err := decrypt(password)
+	if err != nil {
+		return `''`, fmt.Errorf("error decrypting password: %v", err)
+	}
+
+	return clearTextPassword, nil
+}
+
 func main() {
 
 	/* custompanicHandler hides developer's filesystem information from the stack trace
@@ -1989,10 +2060,6 @@ func main() {
 	}
 	defer db.Close()
 
-	// writeUpdatedPassDbToFile dumps the password database and its changes to to password file.
-	// defer writeUpdatedPassDbToFile()
-	defer PushPasswordsToDB()
-
 	//########################################## CLI #####################################################
 	// Here we read the cli aruguments
 	consoleProfile, sshProfile, action, profileType := processCliArgs()
@@ -2013,8 +2080,7 @@ func main() {
 	// hostPasswords, err = readPassFile()
 	err = loadCredentials()
 	if err != nil {
-		fmt.Println("Can't read the password file!")
-		log.Println("Can't read the password file!")
+		log.Printf("Can't read the password file: %v", err)
 	}
 
 	// Read the folderdb.json file
@@ -2053,7 +2119,10 @@ func main() {
 
 					if sshProfile.Password != "" {
 						updatePasswordDB(sshProfile)
-						fmt.Println("\nPassword has been successfully added to the password database!")
+						if err := encryptAndPushPassToDB(sshProfile.Host, sshProfile.Password); err != nil {
+							fmt.Println(err)
+							return
+						}
 					}
 				case "console":
 					addConsoleConfig(consoleProfile)
@@ -2079,6 +2148,12 @@ func main() {
 			}
 		}
 	} else {
-		ExecTheUI(configPath, folders)
+		if err := ExecTheUI(configPath, folders); err != nil {
+			if !strings.Contains(err.Error(), "^C") {
+				fmt.Println(err)
+			}
+
+			return
+		}
 	}
 }

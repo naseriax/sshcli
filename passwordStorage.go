@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,9 +22,8 @@ var hostPasswords HostPasswords
 type HostPasswords []HostPassword
 
 type HostPassword struct {
-	Host        string `json:"host"`
-	Password    string `json:"password"`
-	IsEncrypted bool   `json:"isEncrypted"`
+	Host     string `json:"host"`
+	Password string `json:"password"`
 }
 
 func loadOrGenerateKey() ([]byte, error) {
@@ -33,13 +31,11 @@ func loadOrGenerateKey() ([]byte, error) {
 	// Attempt to read the key from the single-row table.
 	err := db.QueryRow("SELECT key FROM encryption_key WHERE id = 1").Scan(&key)
 	if err == nil {
-		fmt.Println("🔑 Encryption key loaded from database.")
 		return key, nil
 	}
 
 	// If no key was found, generate a new one.
 	if err == sql.ErrNoRows {
-		fmt.Println("🔧 No encryption key found. Generating a new one...")
 
 		// Check if the key file exists and read it.
 		if keyFile, err = updateFilePath(keyFile); err != nil {
@@ -54,7 +50,7 @@ func loadOrGenerateKey() ([]byte, error) {
 				return nil, fmt.Errorf("error saving new key to database: %w", err)
 			}
 
-			fmt.Println("✅ Imported the existing keyfile into the database")
+			fmt.Println("✅ Data Migration Event: Imported the existing keyfile into the database")
 			return key, nil
 		}
 
@@ -77,7 +73,7 @@ func loadOrGenerateKey() ([]byte, error) {
 	return nil, fmt.Errorf("database error when retrieving key: %w", err)
 }
 
-func encrypt(plaintext []byte, key []byte) (string, error) {
+func encrypt(plaintext []byte) (string, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return "", err
@@ -99,7 +95,30 @@ func encrypt(plaintext []byte, key []byte) (string, error) {
 	return base64.StdEncoding.EncodeToString(result), nil
 }
 
-func decrypt(ciphertext string, key []byte) (string, error) {
+func decrypt_legacy(ciphertext string) (string, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+
+	decodedCiphertext, err := base64.StdEncoding.DecodeString(ciphertext)
+	if err != nil {
+		return "", err
+	}
+
+	if len(decodedCiphertext) < aes.BlockSize {
+		return "", fmt.Errorf("ciphertext too short")
+	}
+	iv := decodedCiphertext[:aes.BlockSize]
+	decodedCiphertext = decodedCiphertext[aes.BlockSize:]
+
+	stream := cipher.NewCFBDecrypter(block, iv)
+	stream.XORKeyStream(decodedCiphertext, decodedCiphertext)
+
+	return string(decodedCiphertext), nil
+}
+
+func decrypt(ciphertext string) (string, error) {
 	decodedData, err := base64.StdEncoding.DecodeString(ciphertext)
 	if err != nil {
 		return "", err
@@ -124,6 +143,13 @@ func decrypt(ciphertext string, key []byte) (string, error) {
 
 	plaintext, err := aesGCM.Open(nil, nonce, ciphertextBytes, nil)
 	if err != nil {
+		if strings.Contains(err.Error(), "cipher: message authentication failed") {
+			pass, err := decrypt_legacy(ciphertext)
+			if err != nil {
+				return "", fmt.Errorf("failed to decrypt legacy format: %w", err)
+			}
+			return pass, nil
+		}
 		return "", err
 	}
 
@@ -169,7 +195,7 @@ func readPassFile() error {
 }
 
 func loadCredentials() error {
-	rows, err := db.Query("SELECT host, password, is_encrypted FROM credentials ORDER BY host")
+	rows, err := db.Query("SELECT host, password FROM credentials ORDER BY host")
 	if err != nil {
 		return fmt.Errorf("failed to query credentials: %w", err)
 	}
@@ -177,7 +203,7 @@ func loadCredentials() error {
 
 	for rows.Next() {
 		var hp HostPassword
-		if err := rows.Scan(&hp.Host, &hp.Password, &hp.IsEncrypted); err != nil {
+		if err := rows.Scan(&hp.Host, &hp.Password); err != nil {
 			return fmt.Errorf("failed to scan credential row: %w", err)
 		}
 		hostPasswords = append(hostPasswords, hp)
@@ -192,7 +218,10 @@ func loadCredentials() error {
 		if err != nil {
 			return fmt.Errorf("error reading password file: %v", err)
 		}
-		fmt.Println("filled the password db from the passwords.json file")
+		if err := PushPasswordsToDB(); err != nil {
+			return fmt.Errorf("error pushing passwords to database: %v", err)
+		}
+		fmt.Println("✅ Data Migration Event: Filled the password db from the passwords.json file")
 	}
 
 	return nil
@@ -236,9 +265,8 @@ func removeValue(hostname string) error {
 func updatePasswordDB(profile SSHConfig) {
 
 	p := HostPassword{
-		Host:        profile.Host,
-		Password:    profile.Password,
-		IsEncrypted: false,
+		Host:     profile.Host,
+		Password: profile.Password,
 	}
 
 	db_clone := HostPasswords{}
@@ -254,66 +282,14 @@ func updatePasswordDB(profile SSHConfig) {
 	hostPasswords = db_clone
 }
 
-func EncryptOrDecryptPassword(host string, key []byte, mode string) (string, error) {
-
-	var (
-		updatedString string
-		err           error
-	)
-
-	original_host := host
-
-	for i, v := range hostPasswords {
-		if len(host) == 0 {
-			host = v.Host
-		}
-		if v.Host == host {
-			if strings.EqualFold(mode, "enc") {
-				if !v.IsEncrypted {
-					updatedString, err = encrypt([]byte(v.Password), key)
-					if err != nil {
-						err = fmt.Errorf("error encrypting password: %v", err)
-						return `''`, err
-					}
-					if len(original_host) == 0 {
-						hostPasswords[i].IsEncrypted = true
-						hostPasswords[i].Password = updatedString
-					}
-				} else {
-					updatedString = v.Password
-				}
-			} else {
-				if v.IsEncrypted {
-					updatedString, err = decrypt(v.Password, key)
-					if err != nil {
-						err = fmt.Errorf("error decrypting password: %v", err)
-						return `''`, err
-					}
-
-				} else {
-					updatedString = v.Password
-				}
-			}
-		}
-
-		host = original_host
-	}
-	return updatedString, nil
-}
-
 func PushPasswordsToDB() error {
-
-	_, err := EncryptOrDecryptPassword("", key, "enc")
-	if err != nil {
-		log.Println("failed to encrypt the password database. Decrypted data may be written to the passwords.json file")
-	}
 
 	tx, err := db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 
-	stmt, err := tx.Prepare("INSERT INTO credentials(host, password, is_encrypted) VALUES(?, ?, ?) ON CONFLICT(host) DO UPDATE SET password = excluded.password,is_encrypted = excluded.is_encrypted;")
+	stmt, err := tx.Prepare("INSERT INTO credentials(host, password) VALUES(?, ?) ON CONFLICT(host) DO UPDATE SET password = excluded.password;")
 	if err != nil {
 		tx.Rollback()
 		return fmt.Errorf("failed to prepare statement: %w", err)
@@ -322,7 +298,7 @@ func PushPasswordsToDB() error {
 	defer stmt.Close()
 
 	for _, s := range hostPasswords {
-		if _, err := stmt.Exec(s.Host, s.Password, s.IsEncrypted); err != nil {
+		if _, err := stmt.Exec(s.Host, s.Password); err != nil {
 			tx.Rollback()
 			return fmt.Errorf("failed to insert '%s': %w", s.Host, err)
 		}
