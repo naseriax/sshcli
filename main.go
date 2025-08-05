@@ -52,8 +52,6 @@ var folderIcon = "🗂️"
 var sshIcon = "🌐"
 var consoleIcon = "📟"
 
-// var gearIcon = "🛠️"
-
 // SSHConfig represents the configuration for an SSH host entry
 type SSHConfig struct {
 	Host         string
@@ -103,10 +101,11 @@ func initDB(filepath string) error {
 
 	// A map of table names to their CREATE statements for clarity and organization.
 	tables := map[string]string{
-		"credentials": `
-		CREATE TABLE IF NOT EXISTS credentials (
+		"sshprofiles": `
+		CREATE TABLE IF NOT EXISTS sshprofiles (
 			host TEXT PRIMARY KEY,
-			password TEXT NOT NULL
+			password TEXT,
+			folder TEXT
 		);`,
 
 		"encryption_key": `
@@ -125,16 +124,6 @@ func initDB(filepath string) error {
 			data_bits INTEGER,
 			folder TEXT
 		);`,
-
-		// This schema allows for a nested folder structure.
-		// A NULL parent_id indicates a root-level folder.
-		"folder_structure": `
-		CREATE TABLE IF NOT EXISTS folder_structure (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name TEXT NOT NULL,
-			parent_id INTEGER,
-			FOREIGN KEY (parent_id) REFERENCES folder_structure(id) ON DELETE CASCADE
-		);`,
 	}
 
 	// Execute each CREATE TABLE statement.
@@ -145,6 +134,29 @@ func initDB(filepath string) error {
 	}
 
 	return nil
+}
+
+func PushFolderToDB(hostname, folder string) error {
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+
+	stmt, err := tx.Prepare("INSERT INTO sshprofiles(host, folder) VALUES(?, ?) ON CONFLICT(host) DO UPDATE SET folder = excluded.folder;")
+	if err != nil {
+		tx.Rollback()
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+
+	defer stmt.Close()
+
+	if _, err := stmt.Exec(hostname, folder); err != nil {
+		tx.Rollback()
+		return fmt.Errorf("failed to insert folder for '%s': %w", hostname, err)
+	}
+
+	return tx.Commit()
 }
 
 func doConfigBackup() error {
@@ -1334,7 +1346,8 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 
 	hostName := chosenParts[1]
 
-	if chosen_type == "ssh" {
+	switch chosen_type {
+	case "ssh":
 		promptCommand := promptui.Select{
 			Label: "Select Command",
 			Size:  35,
@@ -1383,7 +1396,6 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 		} else if strings.EqualFold(command, "Remove http proxy") {
 			DeleteProxyFromProfile(hostName, configPath, folders)
 		} else if strings.EqualFold(command, "Set Password") {
-
 			fmt.Print("\nEnter password: ")
 			bytePassword, err := term.ReadPassword(int(syscall.Stdin))
 			fmt.Println()
@@ -1394,17 +1406,10 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 
 			passString := string(bytePassword)
 
-			profile := SSHConfig{
-				Host:     hostName,
-				Password: passString,
-			}
-
-			updatePasswordDB(profile)
 			if err := encryptAndPushPassToDB(hostName, passString); err != nil {
 				fmt.Println("FAILED!")
 				return fmt.Errorf("failed to push the password to db in set password for the host %v:%v", hostName, err)
 			}
-
 		} else if strings.EqualFold(command, "ping") {
 			h, err := extractHost(hostName, configPath, folders)
 			if err != nil {
@@ -1437,7 +1442,7 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 				cmd.Stderr = os.Stderr
 				cmd.Run()
 			}
-		} else if strings.EqualFold(strings.ToLower(command), "ssh-copy-id") {
+		} else if strings.EqualFold(command, "ssh-copy-id") {
 			// make sure ssh-copy-id is availble in the shell
 			if err := checkShellCommands("ssh-copy-id"); err != nil {
 				fmt.Println(err.Error())
@@ -1482,7 +1487,7 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 			cmd.Run()
-		} else if strings.EqualFold(strings.ToLower(command), "sftp (text UI)") {
+		} else if strings.EqualFold(command, "sftp (text UI)") {
 
 			h, err := extractHost(hostName, configPath, folders)
 			if err != nil {
@@ -1505,17 +1510,9 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 				log.Println("sshpass is not installed, only key authentication is supported")
 			} else {
 
-				// Find the password in the passwords.json file for the hostname
-				for _, p := range hostPasswords {
-
-					if p.Host == hostName {
-						// Decrypt the password if ecnrypted and store it in password variable
-						password, err = readAndDecryptPassFromDB(hostName)
-						if err != nil {
-							return err
-						}
-						break
-					}
+				password, err = readAndDecryptPassFromDB(hostName)
+				if err != nil {
+					return err
 				}
 			}
 
@@ -1555,16 +1552,9 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 
 			} else if passAuthSupported {
 
-				// Find the password in the passwords.json file for the hostname
-				for _, p := range hostPasswords {
-					if p.Host == hostName {
-						// Decrypt the password if ecnrypted and store it in password variable
-						password, err = readAndDecryptPassFromDB(hostName)
-						if err != nil {
-							return err
-						}
-						break
-					}
+				password, err = readAndDecryptPassFromDB(hostName)
+				if err != nil {
+					return err
 				}
 
 				if password != `''` {
@@ -1579,8 +1569,7 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 			fmt.Println("Trying:", method, "authentication")
 			cmd.Run()
 		}
-
-	} else if chosen_type == "console" {
+	case "console":
 		fmt.Println("console")
 		promptCommand := promptui.Select{
 			Label: "Select Command",
@@ -1626,7 +1615,7 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 				}
 			}
 		}
-	} else if chosen_type == "folder" {
+	case "folder":
 		if err := navigateToNext(chosen, folders, hosts, configPath); err != nil {
 			return fmt.Errorf("error navigating to next folder: %w", err)
 		}
@@ -1990,7 +1979,7 @@ func encryptAndPushPassToDB(hostname, password string) error {
 		return fmt.Errorf("failed to begin the db transaction for password insertion:%v", err)
 	}
 
-	stmt, err := tx.Prepare("INSERT INTO credentials(host,password) VALUES(?,?) ON CONFLICT(host) DO UPDATE SET password = excluded.password;")
+	stmt, err := tx.Prepare("INSERT INTO sshprofiles(host,password) VALUES(?,?) ON CONFLICT(host) DO UPDATE SET password = excluded.password;")
 	if err != nil {
 		return fmt.Errorf("failed to prepare the db for password insertion:%v", err)
 	}
@@ -2008,7 +1997,7 @@ func encryptAndPushPassToDB(hostname, password string) error {
 func readAndDecryptPassFromDB(host string) (string, error) {
 	var password string
 
-	query := "SELECT password FROM credentials WHERE host = ?"
+	query := "SELECT password FROM sshprofiles WHERE host = ?"
 
 	row := db.QueryRow(query, host)
 	err := row.Scan(&password)
@@ -2071,13 +2060,13 @@ func main() {
 		return
 	}
 
+	// ###################################### LEGACY MIGRATION CODE ##########################################
+	// These can be removed after the migration was not required for encryption key,password and folder from json
+
 	// Findout and set the full path for the folderdb.json file
 	if folderdb, err = updateFilePath(folderdb); err != nil {
 		fmt.Println(err.Error(), "Folder database not found, showing flat entries.")
 	}
-
-	// Read the passwords.json file
-	// hostPasswords, err = readPassFile()
 	err = loadCredentials()
 	if err != nil {
 		log.Printf("Can't read the password file: %v", err)
@@ -2089,6 +2078,32 @@ func main() {
 		fmt.Println("Can't read the folder database")
 		folders = Folders{}
 	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		log.Printf("failed to begin transaction: %v\n", err)
+	}
+	stmt, err := tx.Prepare("INSERT INTO sshprofiles(host, folder) VALUES(?, ?) ON CONFLICT(host) DO UPDATE SET folder = excluded.folder;")
+	if err != nil {
+		tx.Rollback()
+		log.Printf("failed to prepare statement: %v\n", err)
+	}
+	defer stmt.Close()
+
+	for _, f := range folders {
+		for _, host := range f.Profiles {
+			if _, err := stmt.Exec(host, f.Name); err != nil {
+				tx.Rollback()
+				log.Printf("failed to insert folder for '%s': %v\n", host, err)
+			}
+		}
+
+	}
+	if err := tx.Commit(); err != nil {
+		fmt.Println(err)
+	}
+
+	//########################################################################################################
 
 	if runtime.GOOS == "darwin" && checkShellCommands("cu") == nil {
 		if console_file_path, err = updateFilePath(console_file_path); err != nil {
@@ -2118,7 +2133,6 @@ func main() {
 					}
 
 					if sshProfile.Password != "" {
-						updatePasswordDB(sshProfile)
 						if err := encryptAndPushPassToDB(sshProfile.Host, sshProfile.Password); err != nil {
 							fmt.Println(err)
 							return

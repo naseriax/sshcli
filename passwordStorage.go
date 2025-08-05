@@ -15,16 +15,103 @@ import (
 	"strings"
 )
 
+// ###################################### LEGACY MIGRATION CODE ######################################
+// These can be removed after the migration was not required for encryption key and json password
 var keyFile = "encryption.key"
+
 var dataFile = "passwords.json"
 var hostPasswords HostPasswords
 
 type HostPasswords []HostPassword
-
 type HostPassword struct {
 	Host     string `json:"host"`
 	Password string `json:"password"`
 }
+
+func readPassFile() error {
+
+	if _, err := os.Stat(dataFile); err != nil {
+		fmt.Printf(" [!] %sIt seems no password database file was created before, so here is one: %v\n%s", green, dataFile, reset)
+
+		if err := createFile(dataFile); err != nil {
+			fmt.Printf(" [!] %sfailed to create/access the password database file: %v%s\n", red, dataFile, reset)
+			os.Exit(1)
+		}
+	}
+
+	data, err := os.ReadFile(dataFile)
+	if err != nil {
+		return fmt.Errorf("error reading the Password database file: %v", err)
+	}
+
+	if len(data) != 0 {
+		err = json.Unmarshal(data, &hostPasswords)
+		if err != nil {
+			fmt.Printf("error unmarshalling JSON: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	return nil
+}
+func loadCredentials() error {
+	rows, err := db.Query("SELECT host, password FROM sshprofiles ORDER BY host")
+	if err != nil {
+		return fmt.Errorf("failed to query sshprofiles: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var hp HostPassword
+		if err := rows.Scan(&hp.Host, &hp.Password); err != nil {
+			return fmt.Errorf("failed to scan credential row: %w", err)
+		}
+		hostPasswords = append(hostPasswords, hp)
+	}
+
+	// Check for errors that may have occurred during iteration.
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("error during credential rows iteration: %w", err)
+	}
+	if len(hostPasswords) == 0 {
+		err := readPassFile()
+		if err != nil {
+			return fmt.Errorf("error reading password file: %v", err)
+		}
+		if err := PushPasswordsToDB(); err != nil {
+			return fmt.Errorf("error pushing passwords to database: %v", err)
+		}
+		fmt.Println("✅ Data Migration Event: Filled the password db from the passwords.json file")
+	}
+
+	return nil
+}
+func PushPasswordsToDB() error {
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+
+	stmt, err := tx.Prepare("INSERT INTO sshprofiles(host, password) VALUES(?, ?) ON CONFLICT(host) DO UPDATE SET password = excluded.password;")
+	if err != nil {
+		tx.Rollback()
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+
+	defer stmt.Close()
+
+	for _, s := range hostPasswords {
+		if _, err := stmt.Exec(s.Host, s.Password); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("failed to insert '%s': %w", s.Host, err)
+		}
+	}
+
+	return tx.Commit()
+}
+
+//###################################################################################################
 
 func loadOrGenerateKey() ([]byte, error) {
 	var key []byte
@@ -167,79 +254,14 @@ func updateFilePath(fileName string) (string, error) {
 	return absolutepath, nil
 }
 
-func readPassFile() error {
-
-	if _, err := os.Stat(dataFile); err != nil {
-		fmt.Printf(" [!] %sIt seems no password database file was created before, so here is one: %v\n%s", green, dataFile, reset)
-
-		if err := createFile(dataFile); err != nil {
-			fmt.Printf(" [!] %sfailed to create/access the password database file: %v%s\n", red, dataFile, reset)
-			os.Exit(1)
-		}
-	}
-
-	data, err := os.ReadFile(dataFile)
-	if err != nil {
-		return fmt.Errorf("error reading the Password database file: %v", err)
-	}
-
-	if len(data) != 0 {
-		err = json.Unmarshal(data, &hostPasswords)
-		if err != nil {
-			fmt.Printf("error unmarshalling JSON: %v\n", err)
-			os.Exit(1)
-		}
-	}
-
-	return nil
-}
-
-func loadCredentials() error {
-	rows, err := db.Query("SELECT host, password FROM credentials ORDER BY host")
-	if err != nil {
-		return fmt.Errorf("failed to query credentials: %w", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var hp HostPassword
-		if err := rows.Scan(&hp.Host, &hp.Password); err != nil {
-			return fmt.Errorf("failed to scan credential row: %w", err)
-		}
-		hostPasswords = append(hostPasswords, hp)
-	}
-
-	// Check for errors that may have occurred during iteration.
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("error during credential rows iteration: %w", err)
-	}
-	if len(hostPasswords) == 0 {
-		err := readPassFile()
-		if err != nil {
-			return fmt.Errorf("error reading password file: %v", err)
-		}
-		if err := PushPasswordsToDB(); err != nil {
-			return fmt.Errorf("error pushing passwords to database: %v", err)
-		}
-		fmt.Println("✅ Data Migration Event: Filled the password db from the passwords.json file")
-	}
-
-	return nil
-}
-
 func removeValue(hostname string) error {
-	for i, v := range hostPasswords {
-		if v.Host == hostname {
-			hostPasswords = append(hostPasswords[:i], hostPasswords[i+1:]...)
-		}
-	}
 
 	tx, err := db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 
-	stmt, err := tx.Prepare("DELETE FROM credentials WHERE host = ?;")
+	stmt, err := tx.Prepare("DELETE FROM sshprofiles WHERE host = ?;")
 	if err != nil {
 		return fmt.Errorf("failed to prepare delete statement: %w", err)
 	}
@@ -265,49 +287,4 @@ func removeValue(hostname string) error {
 
 	return tx.Commit()
 
-}
-
-func updatePasswordDB(profile SSHConfig) {
-
-	p := HostPassword{
-		Host:     profile.Host,
-		Password: profile.Password,
-	}
-
-	db_clone := HostPasswords{}
-
-	for _, entity := range hostPasswords {
-		if entity.Host != p.Host {
-			db_clone = append(db_clone, entity)
-		}
-	}
-
-	db_clone = append(db_clone, p)
-
-	hostPasswords = db_clone
-}
-
-func PushPasswordsToDB() error {
-
-	tx, err := db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-
-	stmt, err := tx.Prepare("INSERT INTO credentials(host, password) VALUES(?, ?) ON CONFLICT(host) DO UPDATE SET password = excluded.password;")
-	if err != nil {
-		tx.Rollback()
-		return fmt.Errorf("failed to prepare statement: %w", err)
-	}
-
-	defer stmt.Close()
-
-	for _, s := range hostPasswords {
-		if _, err := stmt.Exec(s.Host, s.Password); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("failed to insert '%s': %w", s.Host, err)
-		}
-	}
-
-	return tx.Commit()
 }
