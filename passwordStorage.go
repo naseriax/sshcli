@@ -55,7 +55,7 @@ func readPassFile() error {
 	return nil
 }
 func loadCredentials() error {
-	rows, err := db.Query("SELECT host, password FROM sshprofiles ORDER BY host")
+	rows, err := db.Query("SELECT host, password FROM sshprofiles WHERE password IS NOT NULL ORDER BY host")
 	if err != nil {
 		return fmt.Errorf("failed to query sshprofiles: %w", err)
 	}

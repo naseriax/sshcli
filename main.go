@@ -16,7 +16,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
-	"slices"
 	"sort"
 	"sshcli/pkgs/sftp_ui"
 	"strconv"
@@ -43,7 +42,8 @@ const (
 
 var console_file_path = "console.json"
 var consoleConfigs ConsoleConfigs
-var folderdb = "folderdb.json"
+
+// var folderdb = "folderdb.json"
 var CompileTime = ""
 var passAuthSupported = true
 var key []byte
@@ -90,7 +90,7 @@ type Folders []struct {
 type ConsoleConfigs []ConsoleConfig
 
 // initDB opens a connection to the SQLite database and ensures all necessary
-// tables are created. It's designed to be idempotent.
+// It's designed to be idempotent.
 func initDB(filepath string) error {
 	var err error
 	// Open the database file. It will be created if it doesn't exist.
@@ -204,17 +204,28 @@ func RemoveProfileFromFolders(data Folders, profileToRemove string) Folders {
 	return result
 }
 
-func overWriteFolderDb(folders Folders) error {
-	data, err := json.MarshalIndent(folders, "", "  ")
+func updateProfileFolder(hostname, foldername string) error {
+
+	tx, err := db.Begin()
 	if err != nil {
-		return fmt.Errorf("error marshalling folderdb json: %v", err)
+		return fmt.Errorf("failed to begin the db transaction for folder update:%v", err)
 	}
 
-	if err := os.WriteFile(folderdb, data, 0644); err != nil {
-		return fmt.Errorf("error writing folderdb file: %v", err)
+	stmt, err := tx.Prepare("INSERT INTO sshprofiles(host,folder) VALUES(?,?) ON CONFLICT(host) DO UPDATE SET folder = excluded.folder;")
+	if err != nil {
+		return fmt.Errorf("failed to prepare the db for folder update:%v", err)
 	}
+	defer stmt.Close()
 
-	return nil
+	if foldername == "NULL" {
+		_, err = stmt.Exec(hostname, sql.NullString{String: "", Valid: false})
+	} else {
+		_, err = stmt.Exec(hostname, foldername)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to update the folder for the host %v: %v", hostname, err)
+	}
+	return tx.Commit()
 }
 
 func OpenSqlCli() {
@@ -402,34 +413,34 @@ func OpenSqlCli() {
 	}
 }
 
-func readFolderDb() (Folders, error) {
+// func readFolderDb() (Folders, error) {
 
-	folder := Folders{}
+// 	folder := Folders{}
 
-	if _, err := os.Stat(folderdb); err != nil {
-		fmt.Printf(" [!] %sIt seems no folder database file was created before, so here is one: %v\n%s", green, folderdb, reset)
+// 	if _, err := os.Stat(folderdb); err != nil {
+// 		fmt.Printf(" [!] %sIt seems no folder database file was created before, so here is one: %v\n%s", green, folderdb, reset)
 
-		if err := createFile(folderdb); err != nil {
-			fmt.Printf(" [!] %sfailed to create/access the folder database file: %v%s", red, folderdb, reset)
-			return folder, fmt.Errorf("failed to create/access the folder database file: %v", err)
-		}
-	}
+// 		if err := createFile(folderdb); err != nil {
+// 			fmt.Printf(" [!] %sfailed to create/access the folder database file: %v%s", red, folderdb, reset)
+// 			return folder, fmt.Errorf("failed to create/access the folder database file: %v", err)
+// 		}
+// 	}
 
-	data, err := os.ReadFile(folderdb)
-	if err != nil {
-		return folder, fmt.Errorf("error reading the folder database file: %v", err)
-	}
+// 	data, err := os.ReadFile(folderdb)
+// 	if err != nil {
+// 		return folder, fmt.Errorf("error reading the folder database file: %v", err)
+// 	}
 
-	if len(data) != 0 {
-		err = json.Unmarshal(data, &folder)
-		if err != nil {
-			fmt.Printf("error unmarshalling folderdb json: %v\n", err)
-			return folder, fmt.Errorf("error unmarshalling folder JSON: %v", err)
-		}
-	}
+// 	if len(data) != 0 {
+// 		err = json.Unmarshal(data, &folder)
+// 		if err != nil {
+// 			fmt.Printf("error unmarshalling folderdb json: %v\n", err)
+// 			return folder, fmt.Errorf("error unmarshalling folder JSON: %v", err)
+// 		}
+// 	}
 
-	return folder, nil
-}
+// 	return folder, nil
+// }
 
 func checkShellCommands(c string) error {
 	if _, err := exec.LookPath(c); err != nil {
@@ -456,9 +467,9 @@ func getDefaultEditor() string {
 	return "vi"
 }
 
-func extractHost(profileName, configPath string, folders Folders) (SSHConfig, error) {
+func extractHost(profileName, configPath string) (SSHConfig, error) {
 	c := SSHConfig{}
-	hosts := getHosts(configPath, folders)
+	hosts := getHosts(configPath)
 
 	for _, h := range hosts {
 		if h.Host == profileName {
@@ -469,7 +480,7 @@ func extractHost(profileName, configPath string, folders Folders) (SSHConfig, er
 	return c, fmt.Errorf("failed to find the profile in the config file")
 }
 
-func editProfile(profileName, configPath string, folders Folders) error {
+func editProfile(profileName, configPath string) error {
 	tmpfile, err := os.CreateTemp("", "ssh-profile-*.txt")
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %v", err)
@@ -477,7 +488,7 @@ func editProfile(profileName, configPath string, folders Folders) error {
 
 	defer os.Remove(tmpfile.Name())
 
-	hosts := getHosts(configPath, folders)
+	hosts := getHosts(configPath)
 
 	config := SSHConfig{}
 
@@ -535,7 +546,7 @@ func editProfile(profileName, configPath string, folders Folders) error {
 
 	if fileInfoAfter.ModTime().After(fileInfoBefore.ModTime()) {
 		// Read the modified content
-		newHosts := getHosts(tmpfile.Name(), folders)
+		newHosts := getHosts(tmpfile.Name())
 		newHost := SSHConfig{}
 
 		if len(newHosts) > 0 {
@@ -1157,7 +1168,7 @@ func IsProxyValid(s string) bool {
 	return true
 }
 
-func AddProxyToProfile(hostName, configPath string, folders Folders) error {
+func AddProxyToProfile(hostName, configPath string) error {
 	var proxy string
 	fmt.Print("Enter http proxy IP:Port (eg. 10.10.10.10:8080): ")
 	scanner := bufio.NewScanner(os.Stdin)
@@ -1176,7 +1187,7 @@ func AddProxyToProfile(hostName, configPath string, folders Folders) error {
 
 	proxy = "nc -X connect -x " + proxy + " %h %p"
 
-	h, err := extractHost(hostName, configPath, folders)
+	h, err := extractHost(hostName, configPath)
 	if err != nil {
 		fmt.Println(err)
 		return fmt.Errorf("error extracting host: %w", err)
@@ -1191,9 +1202,9 @@ func AddProxyToProfile(hostName, configPath string, folders Folders) error {
 	return nil
 }
 
-func DeleteProxyFromProfile(hostName, configPath string, folders Folders) error {
+func DeleteProxyFromProfile(hostName, configPath string) error {
 
-	h, err := extractHost(hostName, configPath, folders)
+	h, err := extractHost(hostName, configPath)
 	if err != nil {
 		fmt.Println(err)
 		return fmt.Errorf("error extracting host: %w", err)
@@ -1209,11 +1220,11 @@ func DeleteProxyFromProfile(hostName, configPath string, folders Folders) error 
 	return nil
 }
 
-func moveToFolder(hostName string, folders Folders) error {
+func moveToFolder(hostName string) error {
 
-	FolderList := make([]string, 0, len(folders))
-	for _, folder := range folders {
-		FolderList = append(FolderList, folder.Name)
+	FolderList, err := getFolderList()
+	if err != nil {
+		log.Println("failed to retrieve the folder list:%w", err)
 	}
 
 	FolderList = append(FolderList, "New Folder")
@@ -1232,12 +1243,13 @@ func moveToFolder(hostName string, folders Folders) error {
 		},
 	}
 
-	_, folderName, err := prompt.Run()
+	_, folderName, err = prompt.Run()
 	if err != nil {
 		handleExitSignal(err)
 		return fmt.Errorf("error selecting folder: %w", err)
 	}
 
+	new_folder_name := ""
 	if strings.EqualFold(folderName, "New Folder") {
 		var name string
 		fmt.Print("New folder name: ")
@@ -1254,29 +1266,23 @@ func moveToFolder(hostName string, folders Folders) error {
 			return fmt.Errorf("invalid folder name")
 		}
 
-		for _, p := range folders {
-			if p.Name == name {
+		for _, p := range FolderList {
+			if p == name {
 				fmt.Println("Folder with name", name, "already exists. Doing nothing!")
 				return fmt.Errorf("folder with name %s already exists", name)
 			}
 		}
 
-		folders = RemoveProfileFromFolders(folders, hostName)
-
-		folders = append(folders, struct {
-			Name     string   "json:\"name\""
-			Profiles []string "json:\"profiles\""
-		}{Name: name, Profiles: []string{hostName}})
+		new_folder_name = name
 
 	} else if strings.EqualFold(folderName, "Remove from folder") {
-		folders = RemoveProfileFromFolders(folders, hostName)
+		new_folder_name = "NULL"
 	} else {
-		folders = RemoveProfileFromFolders(folders, hostName)
-		folders = AddProfileToFolder(folders, folderName, hostName)
+		new_folder_name = folderName
 	}
 
-	if err := overWriteFolderDb(folders); err != nil {
-		return fmt.Errorf("error overwriting folder db: %w", err)
+	if err := updateProfileFolder(hostName, new_folder_name); err != nil {
+		return err
 	}
 
 	return nil
@@ -1320,10 +1326,9 @@ func cleanTheString(s, mode string) string {
 	return s
 }
 
-func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfig) error {
+func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 
 	chosen_type := ""
-
 	chosen = cleanTheString(chosen, "onlyColors")
 
 	chosenParts := strings.Split(chosen, " ")
@@ -1366,19 +1371,22 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 			return fmt.Errorf("error running command prompt: %w", err)
 		}
 		if strings.EqualFold(command, "Set Folder") {
-			moveToFolder(hostName, folders)
-
+			moveToFolder(hostName)
 		} else if strings.EqualFold(command, "Edit Profile") {
-			editProfile(hostName, configPath, folders)
+			editProfile(hostName, configPath)
 
 		} else if strings.EqualFold(command, "Remove Profile") {
 			deleteSSHProfile(hostName)
 
 		} else if strings.EqualFold(command, "Reveal Password") {
 			password, err := readAndDecryptPassFromDB(hostName)
-
 			if err != nil {
-				return err
+				if strings.Contains(err.Error(), "no password") {
+					password = ""
+				} else {
+
+					return err
+				}
 			}
 
 			if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
@@ -1392,9 +1400,9 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 			}
 
 		} else if strings.EqualFold(command, "Set http proxy") {
-			AddProxyToProfile(hostName, configPath, folders)
+			AddProxyToProfile(hostName, configPath)
 		} else if strings.EqualFold(command, "Remove http proxy") {
-			DeleteProxyFromProfile(hostName, configPath, folders)
+			DeleteProxyFromProfile(hostName, configPath)
 		} else if strings.EqualFold(command, "Set Password") {
 			fmt.Print("\nEnter password: ")
 			bytePassword, err := term.ReadPassword(int(syscall.Stdin))
@@ -1411,7 +1419,7 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 				return fmt.Errorf("failed to push the password to db in set password for the host %v:%v", hostName, err)
 			}
 		} else if strings.EqualFold(command, "ping") {
-			h, err := extractHost(hostName, configPath, folders)
+			h, err := extractHost(hostName, configPath)
 			if err != nil {
 				fmt.Println(err)
 				return fmt.Errorf("error extracting host: %w", err)
@@ -1428,7 +1436,7 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 
 			} else {
 				port := "22"
-				h, err := extractHost(hostName, configPath, folders)
+				h, err := extractHost(hostName, configPath)
 				if err != nil {
 					fmt.Println(err)
 					return fmt.Errorf("error extracting host: %w", err)
@@ -1449,7 +1457,7 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 				return fmt.Errorf("ssh-copy-id command not found: %w", err)
 			}
 
-			h, err := extractHost(hostName, configPath, folders)
+			h, err := extractHost(hostName, configPath)
 			if err != nil {
 				fmt.Println(err)
 				return fmt.Errorf("error extracting host: %w", err)
@@ -1489,7 +1497,7 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 			cmd.Run()
 		} else if strings.EqualFold(command, "sftp (text UI)") {
 
-			h, err := extractHost(hostName, configPath, folders)
+			h, err := extractHost(hostName, configPath)
 			if err != nil {
 				fmt.Println(err)
 				return fmt.Errorf("error extracting host: %w", err)
@@ -1512,7 +1520,12 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 
 				password, err = readAndDecryptPassFromDB(hostName)
 				if err != nil {
-					return err
+					if strings.Contains(err.Error(), "no password") {
+						password = ""
+					} else {
+
+						return err
+					}
 				}
 			}
 
@@ -1551,15 +1564,22 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 				passAuthSupported = false
 
 			} else if passAuthSupported {
-
 				password, err = readAndDecryptPassFromDB(hostName)
 				if err != nil {
-					return err
+					if strings.Contains(err.Error(), "no password") {
+						password = ""
+					} else {
+
+						return err
+					}
 				}
 
-				if password != `''` {
+				if password != "" {
 					cmd = *exec.Command("sshpass", "-p", password, strings.ToLower(command), "-o", "StrictHostKeyChecking=no", hostName)
 					method = "password"
+				} else {
+					cmd = *exec.Command(strings.ToLower(command), "-o", "StrictHostKeyChecking=no", hostName)
+					method = "Key, or stdin password"
 				}
 			}
 
@@ -1616,7 +1636,7 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 			}
 		}
 	case "folder":
-		if err := navigateToNext(chosen, folders, hosts, configPath); err != nil {
+		if err := navigateToNext(chosen, hosts, configPath); err != nil {
 			return fmt.Errorf("error navigating to next folder: %w", err)
 		}
 	}
@@ -1624,10 +1644,10 @@ func Connect(chosen string, configPath string, folders Folders, hosts []SSHConfi
 	return nil
 }
 
-func ExecTheUI(configPath string, folders Folders) error {
+func ExecTheUI(configPath string) error {
 
-	hosts := getHosts(configPath, folders)
-	items_to_show := getItems(hosts, folders, false)
+	hosts := getHosts(configPath)
+	items_to_show := getItems(hosts, false)
 
 	searcher := func(input string, index int) bool {
 		item := items_to_show[index]
@@ -1655,7 +1675,7 @@ func ExecTheUI(configPath string, folders Folders) error {
 		return fmt.Errorf("error running host selection prompt: %w", err)
 	}
 
-	if err := navigateToNext(chosen, folders, hosts, configPath); err != nil {
+	if err := navigateToNext(chosen, hosts, configPath); err != nil {
 		return fmt.Errorf("error navigating to next folder: %w", err)
 	}
 
@@ -1663,7 +1683,36 @@ func ExecTheUI(configPath string, folders Folders) error {
 
 }
 
-func navigateToNext(chosen string, folders Folders, hosts []SSHConfig, configPath string) error {
+func getHostsInAFolder(foldername string) ([]string, error) {
+
+	var profile_list []string
+
+	query := fmt.Sprintf("SELECT host FROM sshprofiles WHERE folder = \"%s\"", foldername)
+	rows, err := db.Query(query, foldername)
+	if err != nil {
+		log.Println("error querying hosts in folder:", err)
+		return profile_list, fmt.Errorf("error querying hosts in folder '%s': %w", foldername, err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var profile string
+		if err := rows.Scan(&profile); err != nil {
+			log.Println("error scanning profile:", err)
+			continue
+		}
+		profile_list = append(profile_list, profile)
+	}
+
+	if err := rows.Err(); err != nil {
+		return profile_list, fmt.Errorf("error iterating over hosts: %w", err)
+	}
+
+	return profile_list, nil
+
+}
+
+func navigateToNext(chosen string, hosts []SSHConfig, configPath string) error {
 	chosen_type := ""
 
 	if strings.Contains(chosen, folderIcon) {
@@ -1681,17 +1730,20 @@ func navigateToNext(chosen string, folders Folders, hosts []SSHConfig, configPat
 		sshconfigInFolder := []SSHConfig{}
 		CleanedChosen := cleanTheString(chosen, "all")
 
-		for _, f := range folders {
-			if f.Name == CleanedChosen {
-				for _, sshconfig := range hosts {
-					if sshconfig.Folder == CleanedChosen {
-						sshconfigInFolder = append(sshconfigInFolder, sshconfig)
-					}
+		profilesInFolder, err := getHostsInAFolder(CleanedChosen)
+		if err != nil {
+			return fmt.Errorf("error getting hosts in folder '%s': %w", CleanedChosen, err)
+		}
+
+		for _, f := range profilesInFolder {
+			for _, sshconfig := range hosts {
+				if sshconfig.Host == f {
+					sshconfigInFolder = append(sshconfigInFolder, sshconfig)
 				}
 			}
 		}
 
-		submenu_items := getItems(sshconfigInFolder, Folders{}, true)
+		submenu_items := getItems(sshconfigInFolder, true)
 
 		submenu_searcher := func(input string, index int) bool {
 			item := submenu_items[index]
@@ -1718,29 +1770,39 @@ func navigateToNext(chosen string, folders Folders, hosts []SSHConfig, configPat
 		if err != nil {
 			return fmt.Errorf("error running submenu prompt: %w", err)
 		}
-		if err := Connect(submenu_chosen, configPath, folders, hosts); err != nil {
-			return fmt.Errorf("error connecting to host '%s': %w", submenu_chosen, err)
+
+		if err := Connect(submenu_chosen, configPath, hosts); err != nil {
+			chosenParts := strings.Split(submenu_chosen, " ")
+			return fmt.Errorf("error connecting to host '%s': %w", chosenParts[1], err)
 		}
 	} else {
-		if err := Connect(chosen, configPath, folders, hosts); err != nil {
-			return fmt.Errorf("error connecting to host '%s': %w", chosen, err)
+		if err := Connect(chosen, configPath, hosts); err != nil {
+			chosenParts := strings.Split(chosen, " ")
+			return fmt.Errorf("error connecting to host '%s': %w", chosenParts, err)
 		}
 	}
 
 	return nil
 }
 
-func getFolderNameFromDB(name string, folders Folders) string {
+func readFolderForHostFromDB(host string) (string, error) {
+	var folder string
 
-	for _, p := range folders {
-		if slices.Contains(p.Profiles, name) {
-			return p.Name
-		}
+	query := "SELECT folder FROM sshprofiles WHERE host = ?"
+
+	row := db.QueryRow(query, host)
+	err := row.Scan(&folder)
+
+	if err == sql.ErrNoRows {
+		return "", fmt.Errorf("host not found in folder query: %s", host)
+	} else if err != nil {
+		return "", fmt.Errorf("read folder query failed: %w", err)
 	}
-	return ""
+
+	return folder, nil
 }
 
-func getHosts(sshConfigPath string, folders Folders) []SSHConfig {
+func getHosts(sshConfigPath string) []SSHConfig {
 
 	var hosts []SSHConfig
 	var currentHost *SSHConfig
@@ -1764,7 +1826,7 @@ func getHosts(sshConfigPath string, folders Folders) []SSHConfig {
 			}
 			currentHost = &SSHConfig{Host: host}
 
-			if fName := getFolderNameFromDB(host, folders); fName != "" {
+			if fName, err := readFolderForHostFromDB(host); err == nil && fName != "NULL" && fName != "" {
 				currentHost.Folder = fName
 			}
 
@@ -1799,7 +1861,33 @@ func getHosts(sshConfigPath string, folders Folders) []SSHConfig {
 	return hosts
 }
 
-func getItems(hosts []SSHConfig, folders Folders, isSubmenu bool) []string {
+func getFolderList() ([]string, error) {
+
+	var folderlist []string
+
+	query := "SELECT DISTINCT folder FROM sshprofiles WHERE folder IS NOT NULL;"
+	rows, err := db.Query(query)
+	if err != nil {
+		return folderlist, fmt.Errorf("error querying folders: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var folder string
+		if err := rows.Scan(&folder); err != nil {
+			log.Println("Error scanning folder:", err)
+			continue
+		}
+		folderlist = append(folderlist, folder)
+	}
+
+	if err := rows.Err(); err != nil {
+		return folderlist, fmt.Errorf("error iterating over folders: %w", err)
+	}
+	return folderlist, nil
+}
+
+func getItems(hosts []SSHConfig, isSubmenu bool) []string {
 
 	items := make([]string, 0)
 
@@ -1820,32 +1908,33 @@ func getItems(hosts []SSHConfig, folders Folders, isSubmenu bool) []string {
 	maxHostLen += 1
 	maxUserLen += 1
 
-	for _, f := range folders {
-		for _, host := range hosts {
-			if host.Folder == f.Name {
-				items = append(items, fmt.Sprintf("%s %s %s%s", folderIcon, magenta, f.Name, reset))
-				break
+	if !isSubmenu {
+
+		folderlist, err := getFolderList()
+		if err != nil {
+			log.Println("Error getting folder list:", err)
+		}
+
+		for _, f := range folderlist {
+
+			for _, host := range hosts {
+				if host.Folder == f {
+					items = append(items, fmt.Sprintf("%s %s %s%s", folderIcon, magenta, f, reset))
+					break
+				}
 			}
 		}
+
 	}
 
 	sort.Strings(items)
 
 	for _, host := range hosts {
 
-		if len(host.HostName) == 0 {
-			continue
-		}
-
-		isFlat := true
-		for _, p := range folders {
-			if host.Folder == p.Name {
-				isFlat = false
+		if !isSubmenu {
+			if folder, err := readFolderForHostFromDB(host.Host); (err == nil) && (folder != "NULL" && folder != "") {
+				continue
 			}
-		}
-
-		if !isFlat {
-			continue
 		}
 
 		item := fmt.Sprintf("%s %v%-*s >%v ", sshIcon, green, maxHostLen, host.Host, reset)
@@ -1997,7 +2086,7 @@ func encryptAndPushPassToDB(hostname, password string) error {
 func readAndDecryptPassFromDB(host string) (string, error) {
 	var password string
 
-	query := "SELECT password FROM sshprofiles WHERE host = ?"
+	query := "SELECT password FROM sshprofiles WHERE host = ? AND password IS NOT NULL"
 
 	row := db.QueryRow(query, host)
 	err := row.Scan(&password)
@@ -2063,45 +2152,46 @@ func main() {
 	// ###################################### LEGACY MIGRATION CODE ##########################################
 	// These can be removed after the migration was not required for encryption key,password and folder from json
 
-	// Findout and set the full path for the folderdb.json file
-	if folderdb, err = updateFilePath(folderdb); err != nil {
-		fmt.Println(err.Error(), "Folder database not found, showing flat entries.")
-	}
 	err = loadCredentials()
 	if err != nil {
 		log.Printf("Can't read the password file: %v", err)
 	}
 
-	// Read the folderdb.json file
-	folders, err := readFolderDb()
-	if err != nil {
-		fmt.Println("Can't read the folder database")
-		folders = Folders{}
-	}
+	// // Findout and set the full path for the folderdb.json file
+	// if folderdb, err = updateFilePath(folderdb); err != nil {
+	// 	fmt.Println(err.Error(), "Folder database not found, showing flat entries.")
+	// }
 
-	tx, err := db.Begin()
-	if err != nil {
-		log.Printf("failed to begin transaction: %v\n", err)
-	}
-	stmt, err := tx.Prepare("INSERT INTO sshprofiles(host, folder) VALUES(?, ?) ON CONFLICT(host) DO UPDATE SET folder = excluded.folder;")
-	if err != nil {
-		tx.Rollback()
-		log.Printf("failed to prepare statement: %v\n", err)
-	}
-	defer stmt.Close()
+	// // Read the folderdb.json file
+	// folders, err := readFolderDb()
+	// if err != nil {
+	// 	fmt.Println("Can't read the folder database")
+	// 	folders = Folders{}
+	// }
 
-	for _, f := range folders {
-		for _, host := range f.Profiles {
-			if _, err := stmt.Exec(host, f.Name); err != nil {
-				tx.Rollback()
-				log.Printf("failed to insert folder for '%s': %v\n", host, err)
-			}
-		}
+	// tx, err := db.Begin()
+	// if err != nil {
+	// 	log.Printf("failed to begin transaction: %v\n", err)
+	// }
+	// stmt, err := tx.Prepare("INSERT INTO sshprofiles(host, folder) VALUES(?, ?) ON CONFLICT(host) DO UPDATE SET folder = excluded.folder;")
+	// if err != nil {
+	// 	tx.Rollback()
+	// 	log.Printf("failed to prepare statement: %v\n", err)
+	// }
+	// defer stmt.Close()
 
-	}
-	if err := tx.Commit(); err != nil {
-		fmt.Println(err)
-	}
+	// for _, f := range folders {
+	// 	for _, host := range f.Profiles {
+	// 		if _, err := stmt.Exec(host, f.Name); err != nil {
+	// 			tx.Rollback()
+	// 			log.Printf("failed to insert folder for '%s': %v\n", host, err)
+	// 		}
+	// 	}
+
+	// }
+	// if err := tx.Commit(); err != nil {
+	// 	fmt.Println(err)
+	// }
 
 	//########################################################################################################
 
@@ -2162,11 +2252,10 @@ func main() {
 			}
 		}
 	} else {
-		if err := ExecTheUI(configPath, folders); err != nil {
+		if err := ExecTheUI(configPath); err != nil {
 			if !strings.Contains(err.Error(), "^C") {
 				fmt.Println(err)
 			}
-
 			return
 		}
 	}
