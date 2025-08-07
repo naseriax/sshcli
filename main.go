@@ -155,6 +155,7 @@ func loadCredentials() error {
 
 	return nil
 }
+
 func PushPasswordsToDB() error {
 
 	tx, err := db.Begin()
