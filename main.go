@@ -559,13 +559,26 @@ func editProfile(profileName, configPath string) error {
 		if newHost.Host != "" {
 			doConfigBackup()
 			deleteSSHProfile(newHost.Host)
-			updateSSHConfig(configPath, newHost)
 
 			if newHost.Host == config.Host {
 				fmt.Printf("Modified profile for %s\n", profileName)
 			} else {
+				foldername, err := readFolderForHostFromDB(config.Host)
+				if err != nil {
+					if !strings.Contains(err.Error(), "host not found in folder query") {
+						return fmt.Errorf("failed to read folder for %v:%w", config.Host, err)
+					}
+				} else {
+					newHost.Folder = foldername
+					updateSSHConfig(configPath, newHost)
+					if err := updateProfileFolder(newHost.Host, newHost.Folder); err != nil {
+						log.Printf("failed to push the new host's (%v) folder to the database:%v", newHost.Host, err.Error())
+					}
+				}
+
 				fmt.Printf("A new profile:%s has been added\n", newHost.Host)
 			}
+
 		} else {
 			fmt.Printf("The edited file is not valid, hence the profile %s was not modified.\n", profileName)
 		}
