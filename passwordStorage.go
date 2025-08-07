@@ -137,6 +137,8 @@ func encrypt(plaintext []byte) (string, error) {
 	return base64.StdEncoding.EncodeToString(result), nil
 }
 
+// decrypt_legacy is used to decrypt the passwords coming from the passwords.json file
+// since the encryption mechanism was different and less secure.
 func decrypt_legacy(ciphertext string) (string, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {

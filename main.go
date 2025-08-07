@@ -2304,7 +2304,7 @@ func main() {
 			if err := tx.Commit(); err != nil {
 				fmt.Println(err)
 			}
-			fmt.Println("✅ Data Migration Event: Filled the folder db from the folderdb.json file. the json file can be removed")
+			fmt.Println("✅ Data Migration Event: Filled the folder db from the folderdb.json file. The json file can be removed")
 		}()
 	}
 
