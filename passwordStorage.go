@@ -6,112 +6,69 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
-// ###################################### LEGACY MIGRATION CODE ######################################
-// These can be removed after the migration was not required for encryption key and json password
-var keyFile = "encryption.key"
-
-var dataFile = "passwords.json"
-var hostPasswords HostPasswords
-
-type HostPasswords []HostPassword
-type HostPassword struct {
-	Host     string `json:"host"`
-	Password string `json:"password"`
-}
-
-func readPassFile() error {
-
-	if _, err := os.Stat(dataFile); err != nil {
-		fmt.Printf(" [!] %sIt seems no password database file was created before, so here is one: %v\n%s", green, dataFile, reset)
-
-		if err := createFile(dataFile); err != nil {
-			fmt.Printf(" [!] %sfailed to create/access the password database file: %v%s\n", red, dataFile, reset)
-			os.Exit(1)
-		}
+func encryptAndPushPassToDB(hostname, password string) error {
+	if len(password) == 0 {
+		return fmt.Errorf("password is empty")
 	}
 
-	data, err := os.ReadFile(dataFile)
+	if len(hostname) == 0 {
+		return fmt.Errorf("host is empty")
+	}
+
+	encryptedString, err := encrypt([]byte(password))
 	if err != nil {
-		return fmt.Errorf("error reading the Password database file: %v", err)
+		err = fmt.Errorf("error encrypting password: %v", err)
+		return err
 	}
-
-	if len(data) != 0 {
-		err = json.Unmarshal(data, &hostPasswords)
-		if err != nil {
-			fmt.Printf("error unmarshalling JSON: %v\n", err)
-			os.Exit(1)
-		}
-	}
-
-	return nil
-}
-func loadCredentials() error {
-	rows, err := db.Query("SELECT host, password FROM sshprofiles WHERE password IS NOT NULL ORDER BY host")
-	if err != nil {
-		return fmt.Errorf("failed to query sshprofiles: %w", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var hp HostPassword
-		if err := rows.Scan(&hp.Host, &hp.Password); err != nil {
-			return fmt.Errorf("failed to scan credential row: %w", err)
-		}
-		hostPasswords = append(hostPasswords, hp)
-	}
-
-	// Check for errors that may have occurred during iteration.
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("error during credential rows iteration: %w", err)
-	}
-	if len(hostPasswords) == 0 {
-		err := readPassFile()
-		if err != nil {
-			return fmt.Errorf("error reading password file: %v", err)
-		}
-		if err := PushPasswordsToDB(); err != nil {
-			return fmt.Errorf("error pushing passwords to database: %v", err)
-		}
-		fmt.Println("✅ Data Migration Event: Filled the password db from the passwords.json file")
-	}
-
-	return nil
-}
-func PushPasswordsToDB() error {
 
 	tx, err := db.Begin()
 	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
+		return fmt.Errorf("failed to begin the db transaction for password insertion:%v", err)
 	}
 
-	stmt, err := tx.Prepare("INSERT INTO sshprofiles(host, password) VALUES(?, ?) ON CONFLICT(host) DO UPDATE SET password = excluded.password;")
+	stmt, err := tx.Prepare("INSERT INTO sshprofiles(host,password) VALUES(?,?) ON CONFLICT(host) DO UPDATE SET password = excluded.password;")
 	if err != nil {
-		tx.Rollback()
-		return fmt.Errorf("failed to prepare statement: %w", err)
+		return fmt.Errorf("failed to prepare the db for password insertion:%v", err)
 	}
-
 	defer stmt.Close()
 
-	for _, s := range hostPasswords {
-		if _, err := stmt.Exec(s.Host, s.Password); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("failed to insert '%s': %w", s.Host, err)
-		}
+	_, err = stmt.Exec(hostname, encryptedString)
+	if err != nil {
+		return fmt.Errorf("failed to insert the password for the host %v: %v", hostname, err)
 	}
 
+	fmt.Println("\nPassword has been successfully added to the password database!")
 	return tx.Commit()
 }
 
-//###################################################################################################
+func readAndDecryptPassFromDB(host string) (string, error) {
+	var password string
+
+	query := "SELECT password FROM sshprofiles WHERE host = ? AND password IS NOT NULL"
+
+	row := db.QueryRow(query, host)
+	err := row.Scan(&password)
+
+	if err == sql.ErrNoRows {
+		return "", fmt.Errorf("no password found for host: %s", host)
+	} else if err != nil {
+		return "", fmt.Errorf("read password query failed: %w", err)
+	}
+
+	clearTextPassword, err := decrypt(password)
+	if err != nil {
+		return `''`, fmt.Errorf("error decrypting password: %v", err)
+	}
+
+	return clearTextPassword, nil
+}
 
 func loadOrGenerateKey() ([]byte, error) {
 	var key []byte
@@ -123,11 +80,9 @@ func loadOrGenerateKey() ([]byte, error) {
 
 	// If no key was found, generate a new one.
 	if err == sql.ErrNoRows {
-
 		// Check if the key file exists and read it.
 		if keyFile, err = updateFilePath(keyFile); err != nil {
 			fmt.Println(err.Error(), "failed to find the absolutepath of the keyfile")
-			passAuthSupported = false
 		}
 
 		key, err = os.ReadFile(keyFile)
@@ -241,50 +196,4 @@ func decrypt(ciphertext string) (string, error) {
 	}
 
 	return string(plaintext), nil
-}
-
-func updateFilePath(fileName string) (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get user home directory: %w", err)
-	}
-
-	d := filepath.Join(homeDir, ".ssh")
-	absolutepath := filepath.Join(d, fileName)
-	return absolutepath, nil
-}
-
-func removeValue(hostname string) error {
-
-	tx, err := db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-
-	stmt, err := tx.Prepare("DELETE FROM sshprofiles WHERE host = ?;")
-	if err != nil {
-		return fmt.Errorf("failed to prepare delete statement: %w", err)
-	}
-	defer stmt.Close()
-
-	// Execute the DELETE statement with the provided hostname.
-	result, err := stmt.Exec(hostname)
-	if err != nil {
-		return fmt.Errorf("failed to delete record for host '%s': %w", hostname, err)
-	}
-
-	// Check how many rows were affected by the delete operation.
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected after deletion: %w", err)
-	}
-
-	if rowsAffected == 0 {
-		fmt.Printf("ℹ️ No record found for host '%s'.\n", hostname)
-	} else {
-		fmt.Printf("🗑️ Successfully deleted %d record(s) for host '%s'.\n", rowsAffected, hostname)
-	}
-
-	return tx.Commit()
-
 }
