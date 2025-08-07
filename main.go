@@ -81,11 +81,6 @@ type ConsoleConfig struct {
 	Folder   string
 }
 
-type Folders []struct {
-	Name     string   `json:"name"`
-	Profiles []string `json:"profiles"`
-}
-
 type ConsoleConfigs []ConsoleConfig
 
 // ##################### LEGACY functions to be removed #####################
@@ -186,6 +181,11 @@ func PushPasswordsToDB() error {
 }
 
 // Legacy folder management
+type Folders []struct {
+	Name     string   `json:"name"`
+	Profiles []string `json:"profiles"`
+}
+
 func readFolderDb(folderdb string) (Folders, error) {
 
 	folder := Folders{}
@@ -208,24 +208,6 @@ func readFolderDb(folderdb string) (Folders, error) {
 	}
 
 	return folder, nil
-}
-
-func AddProfileToFolder(data Folders, folderName string, newProfile string) Folders {
-
-	for i, item := range data {
-		if strings.EqualFold(item.Name, folderName) {
-			if !containsProfile(item.Profiles, newProfile) {
-				data[i].Profiles = append(data[i].Profiles, newProfile)
-				fmt.Printf("Profile %q added to folder %q.\n", newProfile, folderName)
-			} else {
-				fmt.Printf("Profile %q already exists in folder %q. No changes made.\n", newProfile, folderName)
-			}
-			return data
-		}
-	}
-
-	fmt.Printf("Folder with name %q not found.\n", folderName)
-	return data
 }
 
 // check if any folder configurations exist in the sqlite db
@@ -307,75 +289,50 @@ func initDB(filepath string) error {
 	return nil
 }
 
-func PushFolderToDB(hostname, folder string) error {
-
-	tx, err := db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-
-	stmt, err := tx.Prepare("INSERT INTO sshprofiles(host, folder) VALUES(?, ?) ON CONFLICT(host) DO UPDATE SET folder = excluded.folder;")
-	if err != nil {
-		tx.Rollback()
-		return fmt.Errorf("failed to prepare statement: %w", err)
-	}
-
-	defer stmt.Close()
-
-	if _, err := stmt.Exec(hostname, folder); err != nil {
-		tx.Rollback()
-		return fmt.Errorf("failed to insert folder for '%s': %w", hostname, err)
-	}
-
-	return tx.Commit()
-}
-
 func doConfigBackup() error {
+	homeDir, _ := os.UserHomeDir()
 	configFilePath, err := setupFilesFolders()
 	if err != nil {
 		return fmt.Errorf("failed to get the config file path")
 	}
 
-	backupConfigFilePath := configFilePath + "_backup"
-
-	srcFile, err := os.Open(configFilePath)
+	databaseFile := filepath.Join(homeDir, ".ssh", "sshcli.db")
+	backupDatabaseFile := databaseFile + "_lastbackup"
+	backupConfigFilePath := configFilePath + "_lastbackup"
+	srcConfigFile, err := os.Open(configFilePath)
 	if err != nil {
 		return err
 	}
-	defer srcFile.Close()
+	defer srcConfigFile.Close()
 
-	dstFile, err := os.Create(backupConfigFilePath)
+	dstConfigFile, err := os.Create(backupConfigFilePath)
 	if err != nil {
 		return err
 	}
-	defer dstFile.Close()
+	defer dstConfigFile.Close()
 
-	_, err = io.Copy(dstFile, srcFile)
+	srcDatabase, err := os.Open(databaseFile)
+	if err != nil {
+		return err
+	}
+	defer srcDatabase.Close()
+
+	dstDatabse, err := os.Create(backupDatabaseFile)
+	if err != nil {
+		return err
+	}
+	defer dstDatabse.Close()
+
+	_, err = io.Copy(dstConfigFile, srcConfigFile)
+	if err != nil {
+		log.Println(err)
+	}
+	_, err = io.Copy(dstDatabse, srcDatabase)
+	if err != nil {
+		log.Println(err)
+	}
+
 	return err
-}
-
-func updateProfileFolder(hostname, foldername string) error {
-
-	tx, err := db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to begin the db transaction for folder update:%v", err)
-	}
-
-	stmt, err := tx.Prepare("INSERT INTO sshprofiles(host,folder) VALUES(?,?) ON CONFLICT(host) DO UPDATE SET folder = excluded.folder;")
-	if err != nil {
-		return fmt.Errorf("failed to prepare the db for folder update:%v", err)
-	}
-	defer stmt.Close()
-
-	if foldername == "NULL" {
-		_, err = stmt.Exec(hostname, sql.NullString{String: "", Valid: false})
-	} else {
-		_, err = stmt.Exec(hostname, foldername)
-	}
-	if err != nil {
-		return fmt.Errorf("failed to update the folder for the host %v: %v", hostname, err)
-	}
-	return tx.Commit()
 }
 
 func OpenSqlCli() {
@@ -563,31 +520,6 @@ func OpenSqlCli() {
 	}
 }
 
-func checkShellCommands(c string) error {
-	if _, err := exec.LookPath(c); err != nil {
-		return fmt.Errorf("%v command is not available in the default system shell", c)
-	}
-	return nil
-}
-
-func getDefaultEditor() string {
-	editors := []string{"vim", "nvim", "vi", "nano"}
-
-	switch runtime.GOOS {
-	case "windows":
-		return "notepad"
-
-	default:
-		for _, editor := range editors {
-			if _, err := exec.LookPath(editor); err == nil {
-				return editor
-			}
-		}
-	}
-
-	return "vi"
-}
-
 func extractHost(profileName, configPath string) (SSHConfig, error) {
 	c := SSHConfig{}
 	hosts := getHosts(configPath)
@@ -700,97 +632,6 @@ func editProfile(profileName, configPath string) error {
 				fmt.Printf("A new profile:%s has been added\n", newHost.Host)
 			}
 
-		} else {
-			fmt.Printf("The edited file is not valid, hence the profile %s was not modified.\n", profileName)
-		}
-
-	} else {
-		fmt.Printf("Profile %s was not modified.\n", profileName)
-	}
-
-	return nil
-}
-
-func editConsoleProfile(profileName string) error {
-	tmpfile, err := os.CreateTemp("", "console-profile-*.txt")
-	if err != nil {
-		return fmt.Errorf("failed to create temp file: %v", err)
-	}
-
-	defer os.Remove(tmpfile.Name())
-
-	config := ConsoleConfig{}
-
-	for _, h := range consoleConfigs {
-		if h.Host == profileName {
-			config = h
-		}
-	}
-
-	profileContent := generateConsoleHostBlock(config)
-
-	_, err = tmpfile.Write(profileContent)
-	if err != nil {
-		return fmt.Errorf("error writing file: %v", err)
-	}
-
-	if err := tmpfile.Close(); err != nil {
-		return fmt.Errorf("failed to close temp file: %v", err)
-	}
-
-	fileInfoBefore, err := os.Stat(tmpfile.Name())
-	if err != nil {
-		return fmt.Errorf("failed to get file info: %v", err)
-	}
-
-	// Determine the editor to use
-	editor := os.Getenv("EDITOR")
-	if editor == "" {
-		editor = getDefaultEditor()
-	}
-
-	// Open the editor
-	cmd := exec.Command(editor, tmpfile.Name())
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start editor: %v", err)
-	}
-
-	// Wait for the editor to close
-	if err := cmd.Wait(); err != nil {
-		return fmt.Errorf("editor exited with error: %v", err)
-	}
-
-	fileInfoAfter, err := os.Stat(tmpfile.Name())
-	if err != nil {
-		return fmt.Errorf("failed to get file info after editing: %v", err)
-	}
-
-	if fileInfoAfter.ModTime().After(fileInfoBefore.ModTime()) {
-		// Read the modified content
-
-		c := ConsoleConfig{}
-		newHost, _ := os.ReadFile(tmpfile.Name())
-
-		if len(newHost) != 0 {
-			err = json.Unmarshal(newHost, &c)
-			if err != nil {
-				fmt.Printf("error unmarshalling JSON for consoleConfigs: %v\n", err)
-				return fmt.Errorf("error unmarshalling JSON for consoleConfigs: %v", err)
-			}
-		}
-
-		if c.Host != "" {
-			addConsoleConfig(c)
-
-			if c.Host == config.Host {
-				fmt.Printf("Modified profile for %s\n", profileName)
-			} else {
-				fmt.Printf("A new profile with a the name:%s has been added\n", c.Host)
-			}
 		} else {
 			fmt.Printf("The edited file is not valid, hence the profile %s was not modified.\n", profileName)
 		}
@@ -1075,83 +916,6 @@ func removeValue(hostname string) error {
 
 }
 
-func createFile(filePath string) error {
-	file, err := os.Create(filePath)
-	if err != nil {
-		fmt.Println("Error creating file:", err)
-		return err
-	}
-	defer file.Close()
-
-	fmt.Printf(" [>] The %v file has been created successfully\n", filePath)
-	return nil
-}
-
-func setupFilesFolders() (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get user home directory: %w", err)
-	}
-
-	d := filepath.Join(homeDir, ".ssh")
-	if _, err := os.Stat(d); err != nil {
-		fmt.Printf(" [!] %sCould not find/access the ssh config file path: %s. Creating it...\n%s", green, d, reset)
-		err := os.Mkdir(d, 0755)
-		if err != nil {
-			fmt.Printf(" [!] %sError creating directory '%s': %v\n%s", red, d, err, reset)
-			return "", fmt.Errorf("failed to create/access the .ssh directory: %w", err)
-		} else {
-			fmt.Printf(" [>] %sSuccessfully created the .ssh directory '%s'.\n%s", green, d, reset)
-		}
-	}
-
-	p := filepath.Join(d, "config")
-	if _, err := os.Stat(p); err != nil {
-		fmt.Printf(" [!] %sCould not find the ssh config file: %v. Creating it...\n%s", green, p, reset)
-
-		if err := createFile(p); err != nil {
-			fmt.Printf("%sfailed to create/access the config file : %v%s", red, p, reset)
-			return "", fmt.Errorf("failed to create/access the config file: %w", err)
-		}
-
-		defaultConfig := SSHConfig{
-			Host:         "vm1",
-			HostName:     "172.16.0.1",
-			User:         "root",
-			Port:         "22",
-			IdentityFile: filepath.Join(d, "id_rsa"),
-		}
-
-		updateSSHConfig(p, defaultConfig)
-	}
-
-	c := filepath.Join(d, "console.json")
-
-	if runtime.GOOS == "darwin" && checkShellCommands("cu") == nil {
-		if _, err := os.Stat(c); err != nil {
-			fmt.Printf(" [!] %sCould not find the console profile database: %v. Creating it...\n%s", green, c, reset)
-
-			if err := createFile(c); err != nil {
-				fmt.Printf("%sfailed to create/access the console file: %v%s", red, c, reset)
-				return "", fmt.Errorf("failed to create/access the console file: %w", err)
-			}
-		}
-	}
-
-	return filepath.Join(homeDir, ".ssh", "config"), nil
-}
-
-func expandWindowsPath(path string) string {
-	for _, env := range os.Environ() {
-		parts := strings.SplitN(env, "=", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		name, value := parts[0], parts[1]
-		path = strings.ReplaceAll(path, "%"+name+"%", value)
-	}
-	return path
-}
 func updateFilePath(fileName string) (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -1271,31 +1035,6 @@ func processCliArgs() (ConsoleConfig, SSHConfig, *string, string) {
 	}
 
 	return consoleProfile, sshProfile, action, *profileType
-}
-
-func containsProfile(slice []string, s string) bool {
-	for _, v := range slice {
-		if v == s {
-			return true
-		}
-	}
-	return false
-}
-
-func runSudoCommand(pass string) error {
-
-	cmd := exec.Command("sudo", "pbcopy")
-	cmd.Stdin = bytes.NewBufferString(pass)
-
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	err := cmd.Run()
-	if err != nil {
-		return fmt.Errorf("command failed: %w", err)
-	}
-
-	return nil
 }
 
 func cleanTheString(s, mode string) string {
@@ -1901,6 +1640,126 @@ func removePaths(stack []byte) []byte {
 	return bytes.Join(lines, []byte("\n"))
 }
 
+// ###################################### OS level helper functions #######################################
+func runSudoCommand(pass string) error {
+
+	cmd := exec.Command("sudo", "pbcopy")
+	cmd.Stdin = bytes.NewBufferString(pass)
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	err := cmd.Run()
+	if err != nil {
+		return fmt.Errorf("command failed: %w", err)
+	}
+
+	return nil
+}
+
+func createFile(filePath string) error {
+	file, err := os.Create(filePath)
+	if err != nil {
+		fmt.Println("Error creating file:", err)
+		return err
+	}
+	defer file.Close()
+
+	fmt.Printf(" [>] The %v file has been created successfully\n", filePath)
+	return nil
+}
+
+func setupFilesFolders() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get user home directory: %w", err)
+	}
+
+	d := filepath.Join(homeDir, ".ssh")
+	if _, err := os.Stat(d); err != nil {
+		fmt.Printf(" [!] %sCould not find/access the ssh config file path: %s. Creating it...\n%s", green, d, reset)
+		err := os.Mkdir(d, 0755)
+		if err != nil {
+			fmt.Printf(" [!] %sError creating directory '%s': %v\n%s", red, d, err, reset)
+			return "", fmt.Errorf("failed to create/access the .ssh directory: %w", err)
+		} else {
+			fmt.Printf(" [>] %sSuccessfully created the .ssh directory '%s'.\n%s", green, d, reset)
+		}
+	}
+
+	p := filepath.Join(d, "config")
+	if _, err := os.Stat(p); err != nil {
+		fmt.Printf(" [!] %sCould not find the ssh config file: %v. Creating it...\n%s", green, p, reset)
+
+		if err := createFile(p); err != nil {
+			fmt.Printf("%sfailed to create/access the config file : %v%s", red, p, reset)
+			return "", fmt.Errorf("failed to create/access the config file: %w", err)
+		}
+
+		defaultConfig := SSHConfig{
+			Host:         "vm1",
+			HostName:     "172.16.0.1",
+			User:         "root",
+			Port:         "22",
+			IdentityFile: filepath.Join(d, "id_rsa"),
+		}
+
+		updateSSHConfig(p, defaultConfig)
+	}
+
+	c := filepath.Join(d, "console.json")
+
+	if runtime.GOOS == "darwin" && checkShellCommands("cu") == nil {
+		if _, err := os.Stat(c); err != nil {
+			fmt.Printf(" [!] %sCould not find the console profile database: %v. Creating it...\n%s", green, c, reset)
+
+			if err := createFile(c); err != nil {
+				fmt.Printf("%sfailed to create/access the console file: %v%s", red, c, reset)
+				return "", fmt.Errorf("failed to create/access the console file: %w", err)
+			}
+		}
+	}
+
+	return filepath.Join(homeDir, ".ssh", "config"), nil
+}
+
+func expandWindowsPath(path string) string {
+	for _, env := range os.Environ() {
+		parts := strings.SplitN(env, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		name, value := parts[0], parts[1]
+		path = strings.ReplaceAll(path, "%"+name+"%", value)
+	}
+	return path
+}
+
+func checkShellCommands(c string) error {
+	if _, err := exec.LookPath(c); err != nil {
+		return fmt.Errorf("%v command is not available in the default system shell", c)
+	}
+	return nil
+}
+
+func getDefaultEditor() string {
+	editors := []string{"vim", "nvim", "vi", "nano"}
+
+	switch runtime.GOOS {
+	case "windows":
+		return "notepad"
+
+	default:
+		for _, editor := range editors {
+			if _, err := exec.LookPath(editor); err == nil {
+				return editor
+			}
+		}
+	}
+
+	return "vi"
+}
+
 // ###################################### Proxy related functions #########################################
 func IsProxyValid(s string) bool {
 
@@ -2123,6 +1982,30 @@ func getFolderList() ([]string, error) {
 	return folderlist, nil
 }
 
+func updateProfileFolder(hostname, foldername string) error {
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin the db transaction for folder update:%v", err)
+	}
+
+	stmt, err := tx.Prepare("INSERT INTO sshprofiles(host,folder) VALUES(?,?) ON CONFLICT(host) DO UPDATE SET folder = excluded.folder;")
+	if err != nil {
+		return fmt.Errorf("failed to prepare the db for folder update:%v", err)
+	}
+	defer stmt.Close()
+
+	if foldername == "NULL" {
+		_, err = stmt.Exec(hostname, sql.NullString{String: "", Valid: false})
+	} else {
+		_, err = stmt.Exec(hostname, foldername)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to update the folder for the host %v: %v", hostname, err)
+	}
+	return tx.Commit()
+}
+
 // #######################################  Console related functions ######################################
 // generateHostBlock creates a complete host block for a new host
 func generateConsoleHostBlock(config ConsoleConfig) []byte {
@@ -2134,6 +2017,7 @@ func generateConsoleHostBlock(config ConsoleConfig) []byte {
 
 	return content
 }
+
 func readConsoleProfile() (ConsoleConfigs, error) {
 
 	if _, err := os.Stat(console_file_path); err != nil {
@@ -2194,6 +2078,97 @@ func writeUpdatedConsoleDBToFile() error {
 	return nil
 }
 
+func editConsoleProfile(profileName string) error {
+	tmpfile, err := os.CreateTemp("", "console-profile-*.txt")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %v", err)
+	}
+
+	defer os.Remove(tmpfile.Name())
+
+	config := ConsoleConfig{}
+
+	for _, h := range consoleConfigs {
+		if h.Host == profileName {
+			config = h
+		}
+	}
+
+	profileContent := generateConsoleHostBlock(config)
+
+	_, err = tmpfile.Write(profileContent)
+	if err != nil {
+		return fmt.Errorf("error writing file: %v", err)
+	}
+
+	if err := tmpfile.Close(); err != nil {
+		return fmt.Errorf("failed to close temp file: %v", err)
+	}
+
+	fileInfoBefore, err := os.Stat(tmpfile.Name())
+	if err != nil {
+		return fmt.Errorf("failed to get file info: %v", err)
+	}
+
+	// Determine the editor to use
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = getDefaultEditor()
+	}
+
+	// Open the editor
+	cmd := exec.Command(editor, tmpfile.Name())
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start editor: %v", err)
+	}
+
+	// Wait for the editor to close
+	if err := cmd.Wait(); err != nil {
+		return fmt.Errorf("editor exited with error: %v", err)
+	}
+
+	fileInfoAfter, err := os.Stat(tmpfile.Name())
+	if err != nil {
+		return fmt.Errorf("failed to get file info after editing: %v", err)
+	}
+
+	if fileInfoAfter.ModTime().After(fileInfoBefore.ModTime()) {
+		// Read the modified content
+
+		c := ConsoleConfig{}
+		newHost, _ := os.ReadFile(tmpfile.Name())
+
+		if len(newHost) != 0 {
+			err = json.Unmarshal(newHost, &c)
+			if err != nil {
+				fmt.Printf("error unmarshalling JSON for consoleConfigs: %v\n", err)
+				return fmt.Errorf("error unmarshalling JSON for consoleConfigs: %v", err)
+			}
+		}
+
+		if c.Host != "" {
+			addConsoleConfig(c)
+
+			if c.Host == config.Host {
+				fmt.Printf("Modified profile for %s\n", profileName)
+			} else {
+				fmt.Printf("A new profile with a the name:%s has been added\n", c.Host)
+			}
+		} else {
+			fmt.Printf("The edited file is not valid, hence the profile %s was not modified.\n", profileName)
+		}
+
+	} else {
+		fmt.Printf("Profile %s was not modified.\n", profileName)
+	}
+
+	return nil
+}
+
 // ###################################### administrative functions ########################################
 func customPanicHandler() {
 	if r := recover(); r != nil {
@@ -2231,15 +2206,19 @@ func main() {
 	log.SetOutput(file)
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-	//########################################## DBS #####################################################
-	// Here we initialize the database
+	//########################################## SSH #####################################################
+
 	configPath, err := setupFilesFolders()
 	if err != nil {
 		fmt.Println(err.Error())
 		return
 	}
-	if err := initDB(filepath.Join(homeDir, ".ssh", "sshcli.db")); err != nil {
-		fmt.Printf("Fatal error during database initialization: %v\n", err)
+
+	//########################################## DBS #####################################################
+	// Here we initialize the database
+	databaseFile := filepath.Join(homeDir, ".ssh", "sshcli.db")
+	if err := initDB(databaseFile); err != nil {
+		fmt.Printf("fatal error during database initialization: %v\n", err)
 		return
 	}
 	defer db.Close()
@@ -2346,7 +2325,6 @@ func main() {
 				case "console":
 					addConsoleConfig(consoleProfile)
 				}
-
 			case "remove":
 				switch strings.ToLower(profileType) {
 				case "ssh":
