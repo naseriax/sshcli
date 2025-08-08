@@ -1789,11 +1789,11 @@ func IsProxyValid(s string) (string, error) {
 
 	port, err := strconv.Atoi(portStr)
 	if err != nil {
-		return "", fmt.Errorf("port is not valid:%s", port)
+		return "", fmt.Errorf("port is not valid:%s", portStr)
 	}
 
 	if port < 1 || port > 65535 {
-		return "", fmt.Errorf("port range is not valid:%s", port)
+		return "", fmt.Errorf("port range is not valid:%d", port)
 	}
 
 	return cleanProxy, nil
