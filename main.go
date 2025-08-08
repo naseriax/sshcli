@@ -290,50 +290,57 @@ func initDB(filepath string) error {
 	return nil
 }
 
-func doConfigBackup() error {
-	homeDir, _ := os.UserHomeDir()
-	configFilePath, err := setupFilesFolders()
-	if err != nil {
-		return fmt.Errorf("failed to get the config file path")
+func doConfigBackup(mode string) {
+
+	if mode == "all" || mode == "config" {
+
+		configFilePath, err := setupFilesFolders()
+		if err != nil {
+			log.Println("failed to get the config file path")
+		}
+
+		backupConfigFilePath := configFilePath + "_lastbackup"
+		srcConfigFile, err := os.Open(configFilePath)
+		if err != nil {
+			log.Println(err)
+		}
+
+		defer srcConfigFile.Close()
+
+		dstConfigFile, err := os.Create(backupConfigFilePath)
+		if err != nil {
+			log.Println(err)
+		}
+		defer dstConfigFile.Close()
+
+		_, err = io.Copy(dstConfigFile, srcConfigFile)
+		if err != nil {
+			log.Println(err)
+		}
 	}
 
-	databaseFile := filepath.Join(homeDir, ".ssh", "sshcli.db")
-	backupDatabaseFile := databaseFile + "_lastbackup"
-	backupConfigFilePath := configFilePath + "_lastbackup"
-	srcConfigFile, err := os.Open(configFilePath)
-	if err != nil {
-		return err
-	}
-	defer srcConfigFile.Close()
+	if mode == "all" || mode == "db" {
 
-	dstConfigFile, err := os.Create(backupConfigFilePath)
-	if err != nil {
-		return err
-	}
-	defer dstConfigFile.Close()
+		homeDir, _ := os.UserHomeDir()
+		databaseFile := filepath.Join(homeDir, ".ssh", "sshcli.db")
+		backupDatabaseFile := databaseFile + "_lastbackup"
+		srcDatabase, err := os.Open(databaseFile)
+		if err != nil {
+			log.Println(err)
+		}
+		defer srcDatabase.Close()
 
-	srcDatabase, err := os.Open(databaseFile)
-	if err != nil {
-		return err
-	}
-	defer srcDatabase.Close()
+		dstDatabse, err := os.Create(backupDatabaseFile)
+		if err != nil {
+			log.Println(err)
+		}
+		defer dstDatabse.Close()
 
-	dstDatabse, err := os.Create(backupDatabaseFile)
-	if err != nil {
-		return err
+		_, err = io.Copy(dstDatabse, srcDatabase)
+		if err != nil {
+			log.Println(err)
+		}
 	}
-	defer dstDatabse.Close()
-
-	_, err = io.Copy(dstConfigFile, srcConfigFile)
-	if err != nil {
-		log.Println(err)
-	}
-	_, err = io.Copy(dstDatabse, srcDatabase)
-	if err != nil {
-		log.Println(err)
-	}
-
-	return err
 }
 
 func OpenSqlCli() {
@@ -611,9 +618,7 @@ func editProfile(profileName, configPath string) error {
 		}
 
 		if newHost.Host != "" {
-			doConfigBackup()
 			deleteSSHProfile(newHost.Host)
-
 			if newHost.Host == config.Host {
 				fmt.Printf("Modified profile for %s\n", profileName)
 			} else {
@@ -2302,12 +2307,13 @@ func main() {
 		defer writeUpdatedConsoleDBToFile()
 	}
 
+	doConfigBackup("all")
+
 	if *action != "" {
 		if sshProfile.Host == "" {
 			fmt.Println("Usage: -action [add|remove] -host HOST [other flags...]")
 			return
 		} else {
-			doConfigBackup()
 			switch strings.ToLower(*action) {
 			case "add":
 				switch strings.ToLower(profileType) {
