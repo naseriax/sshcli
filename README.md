@@ -35,8 +35,7 @@ To compile the code, you must have Golang installed on your system.
 ## Installation
 - You can download the latest binary for your OS/CPU architecture from the release section.
 - Note that starting from release 20250808.0631 onward, the new variant is in-place which uses sqlite (No CGO required) to store passwords, encryption key and folder information.
-  + If the passwords.json file was being used, on the very first execution, the app will migrate the data automatically and pushes to the sshcli.db file.
-  + If the folderdb.json file was being used, on the very first execution, the app will migrate the data automatically and pushes to the sshcli.db file.
+  + If comming from the pre-sqlite release, on the very first execution, the app will migrate the passwords, Encryption key and folder structure automatically and pushes to the sshcli.db file.
   + console profiles are still managed using the json file but it will follow suite soon.
 
 ## Hints
