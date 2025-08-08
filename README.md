@@ -54,7 +54,9 @@ Use **sshcli -sql** to access the sql client engine of the sshcli.db to check th
  Enter Password:
 ```
 - Remove an existing SSH profile from the ~/.ssh/config file:
-`# ./sshcli --action remove --host t001`
+```
+# ./sshcli --action remove --host t001
+```
 - For more options, use the help command:
 ```
 Usage of sshcli:
