@@ -49,8 +49,10 @@ Use **sshcli -sql** to access the sql client engine of the sshcli.db to check th
 
 ## Usage
 - Add or update a profile in the ~/.ssh/config file:
-`# ./sshcli --action add --host t001 --hostname 10.10.10.10 --key '~/.ssh/id_rsa' --username root  --port 22 --askpass`
-Enter Password:
+```
+ # ./sshcli --action add --host t001 --hostname 10.10.10.10 --key '~/.ssh/id_rsa' --username root  --port 22 --askpass
+ Enter Password:
+```
 - Remove an existing SSH profile from the ~/.ssh/config file:
 `# ./sshcli --action remove --host t001`
 - For more options, use the help command:
