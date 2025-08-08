@@ -977,7 +977,7 @@ func processCliArgs() (ConsoleConfig, SSHConfig, *string, string) {
 	Parity := flag.String("parity", "none", "parity, default is none")
 	device := flag.String("device", "/dev/tty.usbserial-1140", "device path, default is /dev/tty.usbserial-1140")
 	version := flag.Bool("version", false, "prints the compile time (version)")
-	sql := flag.Bool("sql", false, "Access SQL file")
+	sql := flag.Bool("sql", false, "Direct access to the sshcli.db file to run sql queries")
 	profileType := flag.String("type", "ssh", "profile type, can be ssh or console, default is ssh")
 	proxy := flag.String("httpproxy", "", "http proxy to be used for the ssh/sftp over http connectivity (optional),eg. 10.10.10.10:8000")
 

@@ -12,8 +12,8 @@ To compile the code, you must have Golang installed on your system.
 ## Requirements to Run
  - The **ssh** and **sftp** commands must be available in your system's PATH environment variable.
  - The **sshpass** tool can be installed optionally if password authentication is needed.
- - The passwords.json file acts as a password database since the ssh config file doesn't support storing passwords. You can add your clear-text passwords to the file, and the tool will encrypt them after the first execution (based on the isEncrypted value). 
- - Alternatively, ssh passwords can be added to new or existing profiles using the --host VM10 --askpass parameters, or by choosing "Set Password" in the profile submenu.
+ - The ~~passwords.json~~ sshcli.db file acts as a password database since the ssh config file doesn't support storing passwords. ~~You can add your clear-text passwords to the file, and the tool will encrypt them after the first execution (based on the isEncrypted value).~~
+ - ssh passwords can be added to new or existing profiles using the --host VM10 --askpass parameters, or by choosing "Set Password" in the profile submenu.
 
 ## Supported Operating Systems:
   - In theory, all operating systems and cpu architecture are supported, but the testing is done only on MacOS.
@@ -45,6 +45,7 @@ To compile the code, you must have Golang installed on your system.
 
 ## Hints
 Use / to bring up the search field and find a host from the list more easily.
+Use **sshcli -sql** to access the sql client engine of the sshcli.db to check the content or do some fun queries.
 
 ## Usage
 - Add or update a profile in the ~/.ssh/config file:
