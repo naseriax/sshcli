@@ -1767,12 +1767,16 @@ func getDefaultEditor() string {
 }
 
 // ###################################### Proxy related functions #########################################
-func IsProxyValid(s string) bool {
+func IsProxyValid(s string) (string, error) {
 
-	parts := strings.Split(s, ":")
+	cleanProxy := strings.ReplaceAll(s, "http://", "")
+	cleanProxy = strings.ReplaceAll(cleanProxy, "https://", "")
+	cleanProxy = strings.ReplaceAll(cleanProxy, "/", "")
+
+	parts := strings.Split(cleanProxy, ":")
 
 	if len(parts) < 2 {
-		return false
+		return "", fmt.Errorf("proxy %v not formatted properly", s)
 	}
 
 	portStr := parts[len(parts)-1]
@@ -1780,24 +1784,24 @@ func IsProxyValid(s string) bool {
 
 	ip := net.ParseIP(ipStr)
 	if ip == nil {
-		return false
+		return "", fmt.Errorf("ip address not valid:%s", ipStr)
 	}
 
 	port, err := strconv.Atoi(portStr)
 	if err != nil {
-		return false
+		return "", fmt.Errorf("port is not valid:%s", port)
 	}
 
 	if port < 1 || port > 65535 {
-		return false
+		return "", fmt.Errorf("port range is not valid:%s", port)
 	}
 
-	return true
+	return cleanProxy, nil
 }
 
 func AddProxyToProfile(hostName, configPath string) error {
 	var proxy string
-	fmt.Print("Enter http proxy IP:Port (eg. 10.10.10.10:8080): ")
+	fmt.Print("Enter httpproxy IP:Port (eg. 10.10.10.10:8080) or press enter to read it from https_proxy env variable: ")
 	scanner := bufio.NewScanner(os.Stdin)
 	if scanner.Scan() {
 		proxy = scanner.Text()
@@ -1807,12 +1811,21 @@ func AddProxyToProfile(hostName, configPath string) error {
 		fmt.Fprintln(os.Stderr, "Error reading the proxy from stdin:", err)
 	}
 
-	if !IsProxyValid(proxy) {
-		fmt.Println("Proxy string was not fromatted properly!")
-		return fmt.Errorf("invalid proxy format")
+	if len(proxy) == 0 {
+		//read https_proxy value and use use it
+		proxy = os.Getenv("https_proxy")
+		if proxy == "" {
+			return fmt.Errorf("https_proxy is not set")
+		}
 	}
 
-	proxy = "nc -X connect -x " + proxy + " %h %p"
+	cleanProxy, err := IsProxyValid(proxy)
+	if err != nil {
+		fmt.Println("Proxy string was not formatted properly!")
+		return err
+	}
+
+	proxy = "nc -X connect -x " + cleanProxy + " %h %p"
 
 	h, err := extractHost(hostName, configPath)
 	if err != nil {
