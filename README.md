@@ -55,36 +55,39 @@ Enter Password:
 `# ./sshcli --action remove --host t001`
 - For more options, use the help command:
 ```
-└──> sshcli -h
 Usage of sshcli:
   -action string
-    	Action to perform: add, remove
+        Action to perform: add, remove
   -askpass
-    	Password prompt
+        Password prompt
   -baudrate string
-    	BaudRate, default is 9600 (default "9600")
+        BaudRate, default is 9600 (default "9600")
   -data_bits string
-    	databits, default is 8 (default "8")
+        databits, default is 8 (default "8")
   -device string
-    	device path, default is /dev/tty.usbserial-1140 (default "/dev/tty.usbserial-1140")
+        device path, default is /dev/tty.usbserial-1140 (default "/dev/tty.usbserial-1140")
   -host string
-    	Host alias
+        Host alias
   -hostname string
-    	HostName or IP address
+        HostName or IP address
+  -httpproxy string
+        http proxy to be used for the ssh/sftp over http connectivity (optional),eg. 10.10.10.10:8000
   -key string
-    	IdentityFile path
+        IdentityFile path
   -parity string
-    	parity, default is none (default "none")
+        parity, default is none (default "none")
   -port string
-    	Port Number
+        Port Number
+  -sql
+        Direct access to the sshcli.db file to run sql queries
   -stop_bit string
-    	stop bit, default is 1 (default "1")
+        stop bit, default is 1 (default "1")
   -type string
-    	profile type, can be ssh or console, default is ssh (default "ssh")
+        profile type, can be ssh or console, default is ssh (default "ssh")
   -username string
-    	Username
+        Username
   -version
-    	prints the compile time (version)
+        prints the compile time (version)
 ```
 
 ### Significant Features
