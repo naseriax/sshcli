@@ -40,9 +40,6 @@ const (
 	orange      = "\033[38;2;255;165;0m"
 )
 
-var console_file_path = "console.json"
-var consoleConfigs ConsoleConfigs
-
 var CompileTime = ""
 var passAuthSupported = true
 var key []byte
@@ -1444,7 +1441,7 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 		promptCommand := promptui.Select{
 			Label: "Select Command",
 			Size:  35,
-			Items: []string{"Connect via cu", "Edit Profile", "Remove Profile"},
+			Items: []string{"Connect via cu", "Duplicate/Edit Profile", "Remove Profile"},
 			Templates: &promptui.SelectTemplates{
 				Label:    "{{ . }}?",
 				Active:   "\U0001F534 {{ . | cyan }}",
@@ -1459,30 +1456,33 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 			return fmt.Errorf("error running command prompt: %w", err)
 		}
 
+		consoleProfile, err := readConsoleProfileFromDb(hostName)
+		if err != nil {
+			fmt.Println("Error reading console profile:", err)
+			return fmt.Errorf("error reading console profile: %w", err)
+		}
+
 		if strings.ToLower(command) == "connect" {
-			for _, c := range consoleConfigs {
-				if c.Host == hostName {
 
-					cmd := *exec.Command("sudo", "cu", "-s", c.BaudRate, "-l", c.Device)
-					cmd.Stdin = os.Stdin
-					cmd.Stdout = os.Stdout
-					cmd.Stderr = os.Stderr
-					cmd.Run()
-				}
-			}
-		} else if strings.ToLower(command) == "edit profile" {
+			cmd := *exec.Command("sudo", "cu", "-s", consoleProfile.BaudRate, "-l", consoleProfile.Device)
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			cmd.Run()
 
-			err := editConsoleProfile(hostName)
+		} else if strings.ToLower(command) == "duplicate/edit profile" {
+
+			err := editConsoleProfile(consoleProfile)
 			if err != nil {
 				fmt.Println(err)
 				return fmt.Errorf("error editing console profile: %w", err)
 			}
 
 		} else if strings.ToLower(command) == "remove profile" {
-			for _, c := range consoleConfigs {
-				if c.Host == hostName {
-					removeConsoleConfig(hostName)
-				}
+			err := removeConsoleConfig(hostName)
+			if err != nil {
+				fmt.Println(err)
+				return fmt.Errorf("error deleting console profile: %w", err)
 			}
 		}
 	case "folder":
@@ -1622,7 +1622,13 @@ func getItems(hosts []SSHConfig, isSubmenu bool) []string {
 		items = append(items, item)
 	}
 
-	if !isSubmenu {
+	if runtime.GOOS == "darwin" && checkShellCommands("cu") == nil && !isSubmenu {
+
+		consoleConfigs, err := readAllConsoleProfiles()
+		if err != nil {
+			log.Println("Error reading console profiles:", err)
+		}
+
 		if len(consoleConfigs) > 0 {
 			for _, c := range consoleConfigs {
 				items = append(items, fmt.Sprintf("%s %v%-*s >%v %v", consoleIcon, yellow, maxHostLen, c.Host, reset, c.BaudRate))
@@ -2036,81 +2042,110 @@ func generateConsoleHostBlock(config ConsoleConfig) []byte {
 	return content
 }
 
-func readConsoleProfile() (ConsoleConfigs, error) {
-
-	if _, err := os.Stat(console_file_path); err != nil {
-		fmt.Printf("failed to create/access the console file: %v\n", console_file_path)
-		return consoleConfigs, fmt.Errorf("failed to create/access the console file: %v", console_file_path)
-	}
-
-	data, err := os.ReadFile(console_file_path)
+func removeConsoleConfig(h string) error {
+	tx, err := db.Begin()
 	if err != nil {
-		return consoleConfigs, fmt.Errorf("error reading the console file: %v", err)
+		return fmt.Errorf("failed to begin the db transaction for console profile deletion: %v", err)
 	}
 
-	if len(data) != 0 {
-		err = json.Unmarshal(data, &consoleConfigs)
-		if err != nil {
-			fmt.Printf("error unmarshalling JSON: %v\n", err)
-			return consoleConfigs, fmt.Errorf("error unmarshalling JSON: %v", err)
-		}
-	}
-
-	return consoleConfigs, nil
-}
-
-func removeConsoleConfig(h string) {
-	for i, v := range consoleConfigs {
-		if v.Host == h {
-			consoleConfigs = append(consoleConfigs[:i], consoleConfigs[i+1:]...)
-		}
-	}
-}
-
-func addConsoleConfig(profile ConsoleConfig) {
-
-	f := consoleConfigs
-
-	for i, v := range consoleConfigs {
-		if v.Host == profile.Host {
-			f = append(consoleConfigs[:i], consoleConfigs[i+1:]...)
-		}
-	}
-
-	consoleConfigs = f
-	consoleConfigs = append(consoleConfigs, profile)
-}
-
-func writeUpdatedConsoleDBToFile() error {
-
-	content, err := json.MarshalIndent(consoleConfigs, "", "  ")
+	stmt, err := tx.Prepare("DELETE FROM console_profiles WHERE host = ?;")
 	if err != nil {
-		return fmt.Errorf("error marshalling JSON: %v", err)
+		fmt.Printf("failed to prepare the db for console profile deletion:%v\n", err)
+		return err
 	}
+	defer stmt.Close()
 
-	err = os.WriteFile(console_file_path, content, 0644)
+	_, err = stmt.Exec(h)
 	if err != nil {
-		return fmt.Errorf("error writing file: %v", err)
+		fmt.Printf("failed to delete the console profile for the host %v: %v\n", h, err)
+		return err
 	}
 
-	return nil
+	fmt.Printf("Console profile for %s has been removed successfully.\n", h)
+
+	return tx.Commit()
+
 }
 
-func editConsoleProfile(profileName string) error {
+func addConsoleConfig(profile ConsoleConfig) error {
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin the db transaction for console profile update:%v", err)
+	}
+
+	stmt, err := tx.Prepare(`
+							INSERT INTO console_profiles(host,baud_rate,device,parity,stop_bit,data_bits,folder) 
+							VALUES(?,?,?,?,?,?,?)
+							ON CONFLICT(host) DO UPDATE SET folder = excluded.folder, 
+							baud_rate = excluded.baud_rate, 
+							device = excluded.device, 
+							parity = excluded.parity, 
+							stop_bit = excluded.stop_bit, 
+							data_bits = excluded.data_bits;
+							`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare the db for console profile update:%v", err)
+	}
+	defer stmt.Close()
+
+	_, err = stmt.Exec(profile.Host, profile.BaudRate, profile.Device, profile.Parity, profile.StopBit, profile.DataBits, profile.Folder)
+	if err != nil {
+		return fmt.Errorf("failed to update the console profile for the host %v: %v", profile.Host, err)
+	}
+	return tx.Commit()
+}
+
+func readAllConsoleProfiles() (ConsoleConfigs, error) {
+	var consoleProfiles ConsoleConfigs
+
+	rows, err := db.Query("SELECT host, baud_rate, device, parity, stop_bit, data_bits, folder FROM console_profiles")
+	if err != nil {
+		log.Println("Error querying console profiles:", err)
+		return consoleProfiles, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var profile ConsoleConfig
+		if err := rows.Scan(&profile.Host, &profile.BaudRate, &profile.Device, &profile.Parity, &profile.StopBit, &profile.DataBits, &profile.Folder); err != nil {
+			log.Println("Error scanning console profile:", err)
+			continue
+		}
+		consoleProfiles = append(consoleProfiles, profile)
+	}
+
+	if err := rows.Err(); err != nil {
+		log.Println("Error reading console profiles:", err)
+	}
+
+	return consoleProfiles, nil
+}
+
+func readConsoleProfileFromDb(host string) (ConsoleConfig, error) {
+	var profile ConsoleConfig
+
+	query := "SELECT host, baud_rate, device, parity, stop_bit, data_bits FROM console_profiles WHERE host = ?"
+	row := db.QueryRow(query, host)
+
+	err := row.Scan(&profile.Host, &profile.BaudRate, &profile.Device, &profile.Parity, &profile.StopBit, &profile.DataBits)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return profile, fmt.Errorf("console profile not found for host: %s", host)
+		}
+		return profile, fmt.Errorf("error reading console profile from db: %v", err)
+	}
+
+	return profile, nil
+}
+
+func editConsoleProfile(config ConsoleConfig) error {
 	tmpfile, err := os.CreateTemp("", "console-profile-*.txt")
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %v", err)
 	}
 
 	defer os.Remove(tmpfile.Name())
-
-	config := ConsoleConfig{}
-
-	for _, h := range consoleConfigs {
-		if h.Host == profileName {
-			config = h
-		}
-	}
 
 	profileContent := generateConsoleHostBlock(config)
 
@@ -2155,7 +2190,6 @@ func editConsoleProfile(profileName string) error {
 	}
 
 	if fileInfoAfter.ModTime().After(fileInfoBefore.ModTime()) {
-		// Read the modified content
 
 		c := ConsoleConfig{}
 		newHost, _ := os.ReadFile(tmpfile.Name())
@@ -2169,19 +2203,23 @@ func editConsoleProfile(profileName string) error {
 		}
 
 		if c.Host != "" {
-			addConsoleConfig(c)
+
+			if err := addConsoleConfig(c); err != nil {
+				return err
+			}
 
 			if c.Host == config.Host {
-				fmt.Printf("Modified profile for %s\n", profileName)
+				fmt.Printf("Modified profile for %s\n", c.Host)
 			} else {
-				fmt.Printf("A new profile with a the name:%s has been added\n", c.Host)
+				fmt.Printf("A new profile:%s has been added\n", c.Host)
 			}
+
 		} else {
-			fmt.Printf("The edited file is not valid, hence the profile %s was not modified.\n", profileName)
+			fmt.Printf("The edited file is not valid, hence the profile %s was not modified.\n", config.Host)
 		}
 
 	} else {
-		fmt.Printf("Profile %s was not modified.\n", profileName)
+		fmt.Printf("Profile %s was not modified.\n", config.Host)
 	}
 
 	return nil
@@ -2204,6 +2242,7 @@ func handleExitSignal(err error) {
 		fmt.Printf("Prompt failed %v\n", err)
 	}
 }
+
 func main() {
 
 	/* custompanicHandler hides developer's filesystem information from the stack trace
@@ -2244,6 +2283,7 @@ func main() {
 	//########################################## CLI #####################################################
 	// Here we read the cli aruguments
 	consoleProfile, sshProfile, action, profileType := processCliArgs()
+
 	//########################################## ENC #####################################################
 	// Check if there is encryption key inside the sqlite db, if no, check if encryption.key file is available
 	// If yes, push it into the db and use the one in the db moving forward.
@@ -2307,22 +2347,10 @@ func main() {
 
 	//########################################################################################################
 
-	if runtime.GOOS == "darwin" && checkShellCommands("cu") == nil {
-		if console_file_path, err = updateFilePath(console_file_path); err != nil {
-			fmt.Println(err)
-		}
-		consoleConfigs, err = readConsoleProfile()
-		if err != nil {
-			fmt.Println("Can't read/access the console config file")
-		}
-
-		defer writeUpdatedConsoleDBToFile()
-	}
-
 	doConfigBackup("all")
 
 	if *action != "" {
-		if sshProfile.Host == "" {
+		if sshProfile.Host == "" && consoleProfile.Host == "" {
 			fmt.Println("Usage: -action [add|remove] -host HOST [other flags...]")
 			return
 		} else {
@@ -2342,7 +2370,10 @@ func main() {
 						}
 					}
 				case "console":
-					addConsoleConfig(consoleProfile)
+					if err := addConsoleConfig(consoleProfile); err != nil {
+						fmt.Println("Error adding console profile:", err)
+						return
+					}
 				}
 			case "remove":
 				switch strings.ToLower(profileType) {
@@ -2357,7 +2388,10 @@ func main() {
 					}
 
 				case "console":
-					removeConsoleConfig(consoleProfile.Host)
+					if err := removeConsoleConfig(consoleProfile.Host); err != nil {
+						fmt.Println("Error removing console profile:", err)
+						return
+					}
 				}
 			default:
 				fmt.Println("Invalid action. Use '-action add' or '-action remove'.")
