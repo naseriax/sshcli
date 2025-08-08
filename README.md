@@ -33,10 +33,10 @@ To compile the code, you must have Golang installed on your system.
   - Run the tool by calling the binary.
 
 ## Installation
-- You can download the latest binary for your OS/CPU architecture from the release section.
-- Note that starting from release 20250808.0631 onward, the new variant is in-place which uses sqlite (No CGO required) to store passwords, encryption key and folder information.
-  + If comming from the pre-sqlite release, on the very first execution, the app will migrate the passwords, Encryption key and folder structure automatically and pushes to the sshcli.db file.
-  + console profiles are still managed using the json file but it will follow suite soon.
+- You can download the latest binary for your OS/CPU architecture from the releases section.
+  + Starting with release 20250808.0631, the new variant uses SQLite (no CGO required) to store passwords, encryption keys, and folder information.  
+  + If you're coming from a pre-SQLite release, the app will automatically migrate your passwords, encryption key, and folder structure to the sshcli.db file during the very first execution.
+  + Console profiles are still managed using a JSON file but will follow suit soon.
 
 ## Hints
 Use / to bring up the search field and find a host from the list more easily.
