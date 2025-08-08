@@ -1,6 +1,10 @@
 # sshcli
 sshcli is a command-line interface tool that uses the ~/.ssh/config file as a profile database. It allows you to add or remove profiles and connect to them in an interactive environment.
 
+## Branches:
+  - main branch contains the version without sqlite usage.
+  - sshcli_meets_sqlite is at the moment the development branch with the latest & greatest changes.
+
 ## Requirements to Compile
 To compile the code, you must have Golang installed on your system.
   - Check go.mod for the exact golang release requirement.
@@ -33,7 +37,11 @@ To compile the code, you must have Golang installed on your system.
   - Run the tool by calling the binary.
 
 ## Installation
-You can download the latest binary for your OS/CPU architecture from the release section.
+- You can download the latest binary for your OS/CPU architecture from the release section.
+- Note that starting from release 20250808.0631 onward, the new variant is in-place which uses sqlite (No CGO required) to store passwords, encryption key and folder information.
+  + If the passwords.json file was being used, on the very first execution, the app will migrate the data automatically and pushes to the sshcli.db file.
+  + If the folderdb.json file was being used, on the very first execution, the app will migrate the data automatically and pushes to the sshcli.db file.
+  + console profiles are still managed using the json file but it will follow suite soon.
 
 ## Hints
 Use / to bring up the search field and find a host from the list more easily.
