@@ -230,7 +230,6 @@ func isFolderConfiguredinDB() bool {
 			log.Println("error reading folder:", err)
 			continue
 		}
-		fmt.Println(folder)
 		output = true
 		return output
 	}
