@@ -1207,7 +1207,7 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 		promptCommand := promptui.Select{
 			Label: "Select Command",
 			Size:  35,
-			Items: []string{"SSH", "SFTP (os native)", "SFTP (text UI)", "Ping", "TCPing", "ssh-copy-id", "Edit Profile", "Set Password", "Set http proxy", "Set Folder", "Reveal Password", "Remove http proxy", "Remove Profile"},
+			Items: []string{"SSH", "SFTP (os native)", "SFTP (text UI)", "Ping", "TCPing", "ssh-copy-id", "Duplicate/Edit Profile", "Set Password", "Set http proxy", "Set Folder", "Reveal Password", "Remove http proxy", "Remove Profile"},
 			Templates: &promptui.SelectTemplates{
 				Label:    "{{ . }}?",
 				Active:   "\U0001F534 {{ . | cyan }}",
@@ -1223,7 +1223,7 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 		}
 		if strings.EqualFold(command, "Set Folder") {
 			moveToFolder(hostName)
-		} else if strings.EqualFold(command, "Edit Profile") {
+		} else if strings.EqualFold(command, "Duplicate/Edit Profile") {
 			editProfile(hostName, configPath)
 
 		} else if strings.EqualFold(command, "Remove Profile") {
