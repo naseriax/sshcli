@@ -118,7 +118,7 @@ Usage of sshcli:
 - First execution: The tool looks for the required files/folders and creates them if not found
 ![first_run](https://github.com/user-attachments/assets/657fb9c2-9b6b-479e-b494-8ff06f47cd58)
 
-- How to add a new ssh/sftp profile
+- How to add a new ssh/sftp profile. Changing the host name results in creating a new profile (in the same folder) with the new name.
 ![add_2](https://github.com/user-attachments/assets/14fd740c-9180-448b-b9d2-a58094808a2f)
 
 - How to edit an existing ssh/sftp profile
