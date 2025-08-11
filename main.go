@@ -96,12 +96,8 @@ type HostPassword struct {
 func readPassFile() error {
 
 	if _, err := os.Stat(dataFile); err != nil {
-		fmt.Printf(" [!] %sIt seems no password database file was created before, so here is one: %v\n%s", green, dataFile, reset)
 
-		if err := createFile(dataFile); err != nil {
-			fmt.Printf(" [!] %sfailed to create/access the password database file: %v%s\n", red, dataFile, reset)
-			os.Exit(1)
-		}
+		return fmt.Errorf(" [!] %sIt seems no password database file was created before%s", green, reset)
 	}
 
 	data, err := os.ReadFile(dataFile)
@@ -1804,7 +1800,7 @@ func createFile(filePath string) error {
 	}
 	defer file.Close()
 
-	fmt.Printf(" [>] The %v file has been created successfully\n", filePath)
+	fmt.Printf(" [>] %sThe %v file has been created successfully\n%s", green, filePath, reset)
 	return nil
 }
 
@@ -1846,18 +1842,18 @@ func setupFilesFolders() (string, error) {
 		updateSSHConfig(p, defaultConfig)
 	}
 
-	c := filepath.Join(d, "console.json")
+	// c := filepath.Join(d, "console.json")
 
-	if runtime.GOOS == "darwin" && checkShellCommands("cu") == nil {
-		if _, err := os.Stat(c); err != nil {
-			fmt.Printf(" [!] %sCould not find the console profile database: %v. Creating it...\n%s", green, c, reset)
+	// if runtime.GOOS == "darwin" && checkShellCommands("cu") == nil {
+	// 	if _, err := os.Stat(c); err != nil {
+	// 		fmt.Printf(" [!] %sCould not find the console profile database: %v. Creating it...\n%s", green, c, reset)
 
-			if err := createFile(c); err != nil {
-				fmt.Printf("%sfailed to create/access the console file: %v%s", red, c, reset)
-				return "", fmt.Errorf("failed to create/access the console file: %w", err)
-			}
-		}
-	}
+	// 		if err := createFile(c); err != nil {
+	// 			fmt.Printf("%sfailed to create/access the console file: %v%s", red, c, reset)
+	// 			return "", fmt.Errorf("failed to create/access the console file: %w", err)
+	// 		}
+	// 	}
+	// }
 
 	return filepath.Join(homeDir, ".ssh", "config"), nil
 }
@@ -2391,6 +2387,9 @@ func main() {
 	log.SetOutput(file)
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
+	//########################################## CLI #####################################################
+	// Here we read the cli aruguments
+	consoleProfile, sshProfile, action, profileType := processCliArgs()
 	//########################################## SSH #####################################################
 
 	configPath, err := setupFilesFolders()
@@ -2407,10 +2406,6 @@ func main() {
 		return
 	}
 	defer db.Close()
-
-	//########################################## CLI #####################################################
-	// Here we read the cli aruguments
-	consoleProfile, sshProfile, action, profileType := processCliArgs()
 
 	//########################################## ENC #####################################################
 	// Check if there is encryption key inside the sqlite db, if no, check if encryption.key file is available
