@@ -9,3 +9,4 @@
   - Ssh profiles with note or applied https_proxy can be identified by the extra flags on each profile
   - User can push the public key string to the remote host using ssh-copy-id tool (must be availble on the shell)
   - If a ssh profile is duplicated using "Duplicate/Edit profile" option followed by changing the host, the new profile is placed in the same folder as the original one 
+  - Added a more secure password encryption/decryption algorithm cipher.NewGCM(block) instead of cipher.NewCFBDecrypter(block, iv). Due to backward incompatibility, the old algorithm is still there to decrypt the migrated passwords.
