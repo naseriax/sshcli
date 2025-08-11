@@ -255,6 +255,7 @@ func initDB(filepath string) error {
 		CREATE TABLE IF NOT EXISTS sshprofiles (
 			host TEXT PRIMARY KEY,
 			password TEXT,
+			note TEXT,
 			folder TEXT
 		);`,
 
@@ -1173,6 +1174,112 @@ func navigateToNext(chosen string, hosts []SSHConfig, configPath string) error {
 	return nil
 }
 
+func updateNotesAndPushToDb(host string) error {
+
+	tmpfile, err := os.CreateTemp("", "ssh-profile-note-*.txt")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %v", err)
+	}
+
+	defer os.Remove(tmpfile.Name())
+
+	writer := bufio.NewWriter(tmpfile)
+
+	var currentNotes sql.NullString
+
+	query := "SELECT note FROM sshprofiles WHERE host = ?"
+	row := db.QueryRow(query, host)
+
+	err = row.Scan(&currentNotes)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("host: %s not found", host)
+		}
+
+		return fmt.Errorf("error reading note for profile %v from db: %v", host, err)
+	}
+
+	if currentNotes.Valid {
+		// If the value is not NULL, use the .String field
+		fmt.Fprintln(writer, currentNotes.String)
+	} else {
+		// Handle the NULL case, for example, by writing an empty string or a placeholder
+		fmt.Fprintln(writer, "")
+	}
+
+	if err := writer.Flush(); err != nil {
+		return fmt.Errorf("failed to write current note to the temp file for profile %v: %w", host, err)
+	}
+
+	if err := tmpfile.Close(); err != nil {
+		return fmt.Errorf("failed to close temp file: %v", err)
+	}
+
+	fileInfoBefore, err := os.Stat(tmpfile.Name())
+	if err != nil {
+		return fmt.Errorf("failed to get file info: %v", err)
+	}
+
+	// Determine the editor to use
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = getDefaultEditor()
+	}
+
+	// Open the editor
+	cmd := exec.Command(editor, tmpfile.Name())
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start editor: %v", err)
+	}
+
+	// Wait for the editor to close
+	if err := cmd.Wait(); err != nil {
+		return fmt.Errorf("editor exited with error: %v", err)
+	}
+
+	fileInfoAfter, err := os.Stat(tmpfile.Name())
+	if err != nil {
+		return fmt.Errorf("failed to get file info after editing: %v", err)
+	}
+
+	if fileInfoAfter.ModTime().After(fileInfoBefore.ModTime()) {
+
+		content, err := os.ReadFile(tmpfile.Name())
+		if err != nil {
+			return fmt.Errorf("failed to read from temp file: %w", err)
+		}
+
+		updatedNotes := string(content)
+		updateQuery := "UPDATE sshprofiles SET note = ? WHERE host = ?"
+
+		tx, err := db.Begin()
+		if err != nil {
+			return fmt.Errorf("failed to begin the db transaction for note update:%v", err)
+		}
+		stmt, err := tx.Prepare(updateQuery)
+		if err != nil {
+			return fmt.Errorf("failed to prepare update statement: %w", err)
+		}
+		defer stmt.Close()
+
+		_, err = stmt.Exec(updatedNotes, host)
+		if err != nil {
+			return fmt.Errorf("failed to update note for host %s: %w", host, err)
+		}
+
+		return tx.Commit()
+
+	} else {
+		fmt.Printf("Note for profile %s was not modified.\n", host)
+	}
+
+	return nil
+}
+
 func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 
 	chosen_type := ""
@@ -1203,7 +1310,7 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 		promptCommand := promptui.Select{
 			Label: "Select Command",
 			Size:  35,
-			Items: []string{"SSH", "SFTP (os native)", "SFTP (text UI)", "Ping", "TCPing", "ssh-copy-id", "Duplicate/Edit Profile", "Set Password", "Set http proxy", "Set Folder", "Reveal Password", "Remove http proxy", "Remove Profile"},
+			Items: []string{"SSH", "SFTP (os native)", "SFTP (text UI)", "Ping", "TCPing", "ssh-copy-id", "Duplicate/Edit Profile", "Set Password", "Set http proxy", "Set Folder", "notes", "Reveal Password", "Remove http proxy", "Remove Profile"},
 			Templates: &promptui.SelectTemplates{
 				Label:    "{{ . }}?",
 				Active:   "\U0001F534 {{ . | cyan }}",
@@ -1219,6 +1326,10 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 		}
 		if strings.EqualFold(command, "Set Folder") {
 			moveToFolder(hostName)
+		} else if strings.EqualFold(command, "notes") {
+			if err := updateNotesAndPushToDb(hostName); err != nil {
+				log.Println(err)
+			}
 		} else if strings.EqualFold(command, "Duplicate/Edit Profile") {
 			editProfile(hostName, configPath)
 
