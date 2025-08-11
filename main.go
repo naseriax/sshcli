@@ -1664,6 +1664,19 @@ func getHosts(sshConfigPath string) []SSHConfig {
 	return hosts
 }
 
+func isThereAnyNote(host string) bool {
+	var currentNotes string
+
+	query := "SELECT note FROM sshprofiles WHERE host = ? AND note IS NOT NULL"
+	row := db.QueryRow(query, host)
+
+	err := row.Scan(&currentNotes)
+	if err == nil && len(currentNotes) > 0 {
+		return true
+	}
+	return false
+}
+
 func getItems(hosts []SSHConfig, isSubmenu bool) []string {
 
 	items := make([]string, 0)
@@ -1727,7 +1740,11 @@ func getItems(hosts []SSHConfig, isSubmenu bool) []string {
 		}
 
 		if len(host.Proxy) > 0 {
-			item += " (HTTP PROXY)"
+			item += " (@PROXY)"
+		}
+
+		if isThereAnyNote(host.Host) {
+			item += " - 🖍️"
 		}
 
 		items = append(items, item)
