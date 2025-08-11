@@ -114,9 +114,21 @@ Usage of sshcli:
   mods = "Alt"
   chars = "sshcli\n"
 ```
-### Some instructions (wait for them to load)
-- First execution: The tool looks for the required files/folders and creates them if not found
-![first_run](https://github.com/user-attachments/assets/657fb9c2-9b6b-479e-b494-8ff06f47cd58)
+### Some instructions (Please wait for them to load)
+###### On first execution, below files/folder will be created is not created already:
+```
+~/.ssh folder
+~/.ssh/config file
+~/.ssh/sshcli.db file
+```
+###### On each execution, below backup files will be created
+```
+~/.ssh/config_lastbackup file
+~/.ssh/sshcli.db_lastbackup file
+```
+ - A sample ssh profile will be added to the ~/.ssh/config file if the config file is empty.
+
+![init](https://github.com/user-attachments/assets/49d03591-f4e9-4810-85bd-e588678fee6a)
 
 - How to add a new ssh/sftp profile. Changing the host name results in creating a new profile (in the same folder) with the new name.
 ![add_2](https://github.com/user-attachments/assets/14fd740c-9180-448b-b9d2-a58094808a2f)
