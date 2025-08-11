@@ -8,4 +8,4 @@
   - User can create notes per ssh profile and store in the sqlite database
   - Ssh profiles with note or applied http_proxy can be identified by the extra flags on each profile
   - User can push the public key string to the remote host using ssh-copy-id tool (must be availble on the shell)
-  - If a ssh prodile is duplicated using Duplicate/Edit profile option followed by changing the host, the new profile is placed in the same folder as the original one.
+  - If a ssh prodile is duplicated using Duplicate/Edit profile option followed by changing the host, the new profile is placed in the same folder as the original one
