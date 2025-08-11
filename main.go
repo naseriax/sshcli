@@ -1810,19 +1810,7 @@ func setupFilesFolders() (string, error) {
 		return "", fmt.Errorf("failed to get user home directory: %w", err)
 	}
 
-	d := filepath.Join(homeDir, ".ssh")
-	if _, err := os.Stat(d); err != nil {
-		fmt.Printf(" [!] %sCould not find/access the ssh config file path: %s. Creating it...\n%s", green, d, reset)
-		err := os.Mkdir(d, 0755)
-		if err != nil {
-			fmt.Printf(" [!] %sError creating directory '%s': %v\n%s", red, d, err, reset)
-			return "", fmt.Errorf("failed to create/access the .ssh directory: %w", err)
-		} else {
-			fmt.Printf(" [>] %sSuccessfully created the .ssh directory '%s'.\n%s", green, d, reset)
-		}
-	}
-
-	p := filepath.Join(d, "config")
+	p := filepath.Join(homeDir, ".ssh", "config")
 	if _, err := os.Stat(p); err != nil {
 		fmt.Printf(" [!] %sCould not find the ssh config file: %v. Creating it...\n%s", green, p, reset)
 
@@ -1836,24 +1824,11 @@ func setupFilesFolders() (string, error) {
 			HostName:     "172.16.0.1",
 			User:         "root",
 			Port:         "22",
-			IdentityFile: filepath.Join(d, "id_rsa"),
+			IdentityFile: filepath.Join(homeDir, ".ssh", "id_rsa"),
 		}
 
 		updateSSHConfig(p, defaultConfig)
 	}
-
-	// c := filepath.Join(d, "console.json")
-
-	// if runtime.GOOS == "darwin" && checkShellCommands("cu") == nil {
-	// 	if _, err := os.Stat(c); err != nil {
-	// 		fmt.Printf(" [!] %sCould not find the console profile database: %v. Creating it...\n%s", green, c, reset)
-
-	// 		if err := createFile(c); err != nil {
-	// 			fmt.Printf("%sfailed to create/access the console file: %v%s", red, c, reset)
-	// 			return "", fmt.Errorf("failed to create/access the console file: %w", err)
-	// 		}
-	// 	}
-	// }
 
 	return filepath.Join(homeDir, ".ssh", "config"), nil
 }
@@ -2389,7 +2364,20 @@ func main() {
 
 	//########################################## DBS #####################################################
 	// Here we initialize the database
-	databaseFile := filepath.Join(homeDir, ".ssh", "sshcli.db")
+
+	d := filepath.Join(homeDir, ".ssh")
+	if _, err := os.Stat(d); err != nil {
+		fmt.Printf(" [!] %sCould not find/access the ssh config file path: %s. Creating it...\n%s", green, d, reset)
+		err := os.Mkdir(d, 0755)
+		if err != nil {
+			fmt.Printf(" [!] %sError creating directory '%s': %v\n%s", red, d, err, reset)
+			log.Printf("failed to create/access the .ssh directory: %v", err)
+		} else {
+			fmt.Printf(" [>] %sSuccessfully created the .ssh directory '%s'.\n%s", green, d, reset)
+		}
+	}
+
+	databaseFile := filepath.Join(d, "sshcli.db")
 	if err := initDB(databaseFile); err != nil {
 		fmt.Printf("fatal error during database initialization: %v\n", err)
 		return
