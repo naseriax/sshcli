@@ -2387,17 +2387,6 @@ func main() {
 	log.SetOutput(file)
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-	//########################################## CLI #####################################################
-	// Here we read the cli aruguments
-	consoleProfile, sshProfile, action, profileType := processCliArgs()
-	//########################################## SSH #####################################################
-
-	configPath, err := setupFilesFolders()
-	if err != nil {
-		fmt.Println(err.Error())
-		return
-	}
-
 	//########################################## DBS #####################################################
 	// Here we initialize the database
 	databaseFile := filepath.Join(homeDir, ".ssh", "sshcli.db")
@@ -2406,6 +2395,18 @@ func main() {
 		return
 	}
 	defer db.Close()
+
+	//########################################## CLI #####################################################
+	// Here we read the cli aruguments
+	consoleProfile, sshProfile, action, profileType := processCliArgs()
+
+	//########################################## SSH #####################################################
+
+	configPath, err := setupFilesFolders()
+	if err != nil {
+		fmt.Println(err.Error())
+		return
+	}
 
 	//########################################## ENC #####################################################
 	// Check if there is encryption key inside the sqlite db, if no, check if encryption.key file is available
