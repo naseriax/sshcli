@@ -1196,8 +1196,17 @@ func updateNotesAndPushToDb(host string) error {
 	}
 
 	if currentNotes.Valid {
+		decryptedNote, err := decrypt(currentNotes.String)
+		if err != nil {
+			if strings.Contains(err.Error(), "illegal base64 data at input byte 0") {
+				decryptedNote = currentNotes.String
+			} else {
+				log.Println(err)
+			}
+		}
+
 		// If the value is not NULL, use the .String field
-		fmt.Fprintln(writer, currentNotes.String)
+		fmt.Fprintln(writer, decryptedNote)
 	} else {
 		// Handle the NULL case, for example, by writing an empty string or a placeholder
 		fmt.Fprintln(writer, "")
@@ -1249,7 +1258,11 @@ func updateNotesAndPushToDb(host string) error {
 			return fmt.Errorf("failed to read from temp file: %w", err)
 		}
 
-		updatedNotes := string(content)
+		encryptedContent, err := encrypt(content)
+		if err != nil {
+			log.Println(err)
+		}
+
 		updateQuery := "UPDATE sshprofiles SET note = ? WHERE host = ?"
 
 		tx, err := db.Begin()
@@ -1262,7 +1275,7 @@ func updateNotesAndPushToDb(host string) error {
 		}
 		defer stmt.Close()
 
-		_, err = stmt.Exec(updatedNotes, host)
+		_, err = stmt.Exec(encryptedContent, host)
 		if err != nil {
 			return fmt.Errorf("failed to update note for host %s: %w", host, err)
 		}
