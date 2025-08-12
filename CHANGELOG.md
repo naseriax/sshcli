@@ -1,5 +1,7 @@
 # Changelog
-#### up to 20250811.0922
+#### 20250812.0727
+  - Notes are now stored in the sqlite database as encrypted instead of clear text
+#### 20250811.0922
   - Password encryption key is now migrated and stored in the sqlite database
   - Passwords.json file is now migrated and stored in the sqlite database
   - Folder structure is now migrated and stored in the sqlite database
