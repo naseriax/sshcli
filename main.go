@@ -1446,9 +1446,14 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 				h.IdentityFile = strings.ReplaceAll(h.IdentityFile, "~", homeDir)
 			}
 
-			password, err := decrypt(hostName)
+			password, err := readAndDecryptPassFromDB(hostName)
 			if err != nil {
-				return err
+				if strings.Contains(err.Error(), "no password") {
+					password = ""
+				} else {
+
+					return err
+				}
 			}
 
 			cmd := *exec.Command("sshpass", "-p", password, "ssh-copy-id", "-i", h.IdentityFile, "-p", h.Port, h.User+"@"+h.HostName)
