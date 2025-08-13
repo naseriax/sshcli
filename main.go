@@ -1198,7 +1198,7 @@ func updateNotesAndPushToDb(host string) error {
 	if currentNotes.Valid {
 		decryptedNote, err := decrypt(currentNotes.String)
 		if err != nil {
-			if strings.Contains(err.Error(), "illegal base64 data at input byte 0") {
+			if strings.Contains(err.Error(), "illegal base64 data at input byte") {
 				decryptedNote = currentNotes.String
 			} else {
 				log.Println(err)
@@ -1754,7 +1754,7 @@ func getItems(hosts []SSHConfig, isSubmenu bool) []string {
 		}
 
 		if len(host.Proxy) > 0 {
-			item += " (@PROXY)"
+			item += " - 📡"
 		}
 
 		if isThereAnyNote(host.Host) {
