@@ -1728,9 +1728,10 @@ func getItems(hosts []SSHConfig, isSubmenu bool) []string {
 			}
 		}
 
+		sort.Strings(items)
 	}
 
-	// sort.Strings(items)
+	connectionItems := make([]string, 0)
 
 	for _, host := range hosts {
 
@@ -1760,11 +1761,12 @@ func getItems(hosts []SSHConfig, isSubmenu bool) []string {
 			item += " - 🖍️"
 		}
 
-		items = append(items, item)
+		connectionItems = append(connectionItems, item)
 	}
+	sort.Strings(connectionItems)
+	items = append(items, connectionItems...)
 
-	// sort.Strings(items)
-
+	consoleItems := make([]string, 0)
 	if runtime.GOOS == "darwin" && checkShellCommands("cu") == nil && !isSubmenu {
 
 		consoleConfigs, err := readAllConsoleProfiles()
@@ -1774,12 +1776,14 @@ func getItems(hosts []SSHConfig, isSubmenu bool) []string {
 
 		if len(consoleConfigs) > 0 {
 			for _, c := range consoleConfigs {
-				items = append(items, fmt.Sprintf("%s %v%-*s >%v %v", consoleIcon, yellow, maxHostLen, c.Host, reset, c.BaudRate))
+				consoleItems = append(consoleItems, fmt.Sprintf("%s %v%-*s >%v %v", consoleIcon, yellow, maxHostLen, c.Host, reset, c.BaudRate))
 			}
 		}
+
+		sort.Strings(consoleItems)
 	}
 
-	sort.Strings(items)
+	items = append(items, consoleItems...)
 
 	return items
 }
