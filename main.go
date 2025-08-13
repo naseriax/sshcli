@@ -349,8 +349,7 @@ func OpenSqlCli() {
 
 	go func() {
 		// Blocks until a signal is received.
-		sig := <-sigs
-		log.Printf("Received signal: %v. Shutting down gracefully...", sig)
+		<-sigs
 
 		// 5. Perform cleanup actions here.
 		if db != nil {
