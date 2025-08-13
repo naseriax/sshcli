@@ -1730,7 +1730,7 @@ func getItems(hosts []SSHConfig, isSubmenu bool) []string {
 
 	}
 
-	sort.Strings(items)
+	// sort.Strings(items)
 
 	for _, host := range hosts {
 
@@ -1763,6 +1763,8 @@ func getItems(hosts []SSHConfig, isSubmenu bool) []string {
 		items = append(items, item)
 	}
 
+	// sort.Strings(items)
+
 	if runtime.GOOS == "darwin" && checkShellCommands("cu") == nil && !isSubmenu {
 
 		consoleConfigs, err := readAllConsoleProfiles()
@@ -1776,6 +1778,8 @@ func getItems(hosts []SSHConfig, isSubmenu bool) []string {
 			}
 		}
 	}
+
+	sort.Strings(items)
 
 	return items
 }
