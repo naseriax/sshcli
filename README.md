@@ -1,10 +1,6 @@
 # sshcli
 sshcli is a command-line interface tool that uses the ~/.ssh/config file as a profile database. It allows you to add or remove profiles and connect to them in an interactive environment.
 
-## Requirements to Compile
-To compile the code, you must have Golang installed on your system.
-  - Check go.mod for the exact golang release requirement.
-
 ## Requirements to Run
  - The **ssh** and **sftp** commands must be available in your system's PATH environment variable.
  - The **sshpass** tool can be installed optionally if password authentication is needed.
@@ -14,7 +10,12 @@ To compile the code, you must have Golang installed on your system.
 ## Supported Operating Systems:
   - In theory, all operating systems and cpu architecture are supported, but the testing is done only on MacOS.
 
-## Steps to compile
+## Compile (Optional)
+#### Requirements
+To compile the code, you must have Golang installed on your system.
+  - Check go.mod for the exact golang release requirement.
+
+#### Steps:
 - Install golang for your operating system and cpu architecture.
   `https://go.dev/dl/`
 - Clone the repository.

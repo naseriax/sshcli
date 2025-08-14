@@ -610,7 +610,7 @@ func editProfile(profileName, configPath string) error {
 		}
 
 		if newHost.Host != "" {
-			deleteSSHProfile(newHost.Host)
+			// deleteSSHProfile(newHost.Host)
 			if newHost.Host == config.Host {
 				fmt.Printf("Modified profile for %s\n", profileName)
 			} else {

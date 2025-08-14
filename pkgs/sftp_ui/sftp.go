@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -22,17 +23,24 @@ import (
 )
 
 type FileSystem struct {
-	currentPath string
-	list        *tview.List
-	isRemote    bool
-	sftpClient  *sftp.Client
+	currentPath   string
+	list          *tview.List
+	isRemote      bool
+	sftpClient    *sftp.Client
+	selectedItems map[int]bool
+	mu            sync.Mutex
 }
 
-func closeAll(c chan os.Signal, app *tview.Application) {
+// type TransferJob struct {
+// 	filename    string
+// 	sourcePath  string
+// 	targetPath  string
+// 	progressBar *tview.TextView
+// }
 
+func closeAll(c chan os.Signal, app *tview.Application) {
 	<-c
 	log.Println("\nctrl-c detected!")
-
 	time.Sleep(3 * time.Second)
 	app.Stop()
 }
@@ -45,41 +53,46 @@ func prepareOsSig() chan os.Signal {
 
 func NewFileSystem(isRemote bool, sftpClient *sftp.Client, sshClient *ssh.Client) *FileSystem {
 	fs := &FileSystem{
-		currentPath: "/",
-		list:        tview.NewList().ShowSecondaryText(false),
-		isRemote:    isRemote,
-		sftpClient:  sftpClient,
+		currentPath:   "/",
+		list:          tview.NewList().ShowSecondaryText(false),
+		isRemote:      isRemote,
+		sftpClient:    sftpClient,
+		selectedItems: make(map[int]bool),
 	}
 
 	fs.list.SetSelectedTextColor(tcell.ColorGray)
-
 	fs.list.SetBorder(true).SetTitle(fmt.Sprintf("  %s File System  ", getSystemType(isRemote)))
 	return fs
 }
 
-func addFileItem(list *tview.List, name string, t string) {
+func addFileItem(list *tview.List, name string, t string, isSelected bool) {
 	var suffix = ""
 	var icon string
 	var colorTag string
+	var selectionMark string = "  "
+
+	if isSelected {
+		selectionMark = "✓ "
+	}
 
 	switch t {
 	case "ld":
-		icon = "🌀🗂️"
+		icon = "🌀📁"
 		colorTag = "[lightcyan]"
 		suffix = "/"
 	case "lf":
-		icon = "🌀📝"
+		icon = "🌀📄"
 		colorTag = "[magenta]"
 	case "f":
-		icon = "📝"
+		icon = "📄"
 		colorTag = "[magenta]"
 	case "d":
-		icon = "🗂️"
+		icon = "📁"
 		colorTag = "[lightcyan]"
 		suffix = "/"
 	}
 
-	list.AddItem(fmt.Sprintf("%s%s %s%s", colorTag, icon, name, suffix), "", 0, nil)
+	list.AddItem(fmt.Sprintf("%s%s%s %s%s", selectionMark, colorTag, icon, name, suffix), "", 0, nil)
 }
 
 func getSystemType(isRemote bool) string {
@@ -108,7 +121,6 @@ func (fs *FileSystem) isItFileOrFolder(fPath string, isRemote bool) string {
 			log.Println("The symbolic link may be broken or the target is inaccessible.")
 			return "l"
 		}
-
 	} else {
 		targetPath, err = os.Readlink(fPath)
 		if err != nil {
@@ -131,7 +143,6 @@ func (fs *FileSystem) isItFileOrFolder(fPath string, isRemote bool) string {
 	} else {
 		return "lf"
 	}
-
 }
 
 func SortedFileInfo(l []os.FileInfo) []os.FileInfo {
@@ -149,10 +160,7 @@ func SortedDirEntry(l []os.DirEntry) []os.DirEntry {
 }
 
 func loadingBar(StopChan chan bool) {
-	// spinner := []string{`⠋`, `⠙`, `⠹`, `⠸`, `⠼`, `⠴`, `⠦`, `⠧`, `⠇`, `⠏`}
-	// spinner := []string{`░`, `▒`, `▓`, `█`}
-	// spinner := []string{`⣾`, `⣽`, `⣻`, `⢿`, `⡿`, `⣟`, `⣯`, `⣷`}
-	spinner := []string{`░░░░`, `▒░░░`, `▓▒░░`, `█▓▒░`, `██▓▒`, `███▓`, `████`}
+	spinner := []string{`▒▒▒▒`, `▒▒▒▒`, `▓▒▒▒`, `█▓▒▒`, `██▓▒`, `███▓`, `████`}
 	for {
 		select {
 		case <-StopChan:
@@ -168,7 +176,6 @@ func loadingBar(StopChan chan bool) {
 }
 
 func (fs *FileSystem) updateList() {
-
 	StopChan := make(chan bool)
 	go loadingBar(StopChan)
 	defer func() { StopChan <- true }()
@@ -176,6 +183,9 @@ func (fs *FileSystem) updateList() {
 	t := "d"
 	fs.list.Clear()
 	fs.list.AddItem("📁 ..", "Go to parent directory", 0, nil)
+
+	// Track files with their indices
+	itemIndex := 1 // Start from 1 since 0 is ".."
 
 	if fs.isRemote {
 		fileList := make([]os.FileInfo, 0)
@@ -188,12 +198,9 @@ func (fs *FileSystem) updateList() {
 			return
 		}
 		for _, file := range files {
-
 			fPath := filepath.Join(fs.currentPath, file.Name())
 			if file.Mode()&os.ModeSymlink != 0 {
-
 				t = fs.isItFileOrFolder(fPath, true)
-
 			} else {
 				if file.IsDir() {
 					t = "d"
@@ -215,18 +222,25 @@ func (fs *FileSystem) updateList() {
 		}
 
 		for _, f := range SortedFileInfo(linkFList) {
-			addFileItem(fs.list, f.Name(), "lf")
+			isSelected := fs.selectedItems[itemIndex]
+			addFileItem(fs.list, f.Name(), "lf", isSelected)
+			itemIndex++
 		}
 		for _, f := range SortedFileInfo(linkDList) {
-			addFileItem(fs.list, f.Name(), "ld")
+			isSelected := fs.selectedItems[itemIndex]
+			addFileItem(fs.list, f.Name(), "ld", isSelected)
+			itemIndex++
 		}
 		for _, f := range SortedFileInfo(folderList) {
-			addFileItem(fs.list, f.Name(), "d")
+			isSelected := fs.selectedItems[itemIndex]
+			addFileItem(fs.list, f.Name(), "d", isSelected)
+			itemIndex++
 		}
 		for _, f := range SortedFileInfo(fileList) {
-			addFileItem(fs.list, f.Name(), "f")
+			isSelected := fs.selectedItems[itemIndex]
+			addFileItem(fs.list, f.Name(), "f", isSelected)
+			itemIndex++
 		}
-
 	} else {
 		fileList := make([]os.DirEntry, 0)
 		linkDList := make([]os.DirEntry, 0)
@@ -239,9 +253,7 @@ func (fs *FileSystem) updateList() {
 		}
 
 		for _, entry := range entries {
-
 			fPath := filepath.Join(fs.currentPath, entry.Name())
-
 			info, err := entry.Info()
 			if err != nil {
 				log.Printf("Error getting file info: %v", err)
@@ -250,7 +262,6 @@ func (fs *FileSystem) updateList() {
 
 			if info.Mode()&os.ModeSymlink != 0 {
 				t = fs.isItFileOrFolder(fPath, false)
-
 			} else {
 				if entry.IsDir() {
 					t = "d"
@@ -272,24 +283,98 @@ func (fs *FileSystem) updateList() {
 		}
 
 		for _, f := range SortedDirEntry(linkFList) {
-			addFileItem(fs.list, f.Name(), "lf")
+			isSelected := fs.selectedItems[itemIndex]
+			addFileItem(fs.list, f.Name(), "lf", isSelected)
+			itemIndex++
 		}
 		for _, f := range SortedDirEntry(linkDList) {
-			addFileItem(fs.list, f.Name(), "ld")
+			isSelected := fs.selectedItems[itemIndex]
+			addFileItem(fs.list, f.Name(), "ld", isSelected)
+			itemIndex++
 		}
 		for _, f := range SortedDirEntry(folderList) {
-			addFileItem(fs.list, f.Name(), "d")
+			isSelected := fs.selectedItems[itemIndex]
+			addFileItem(fs.list, f.Name(), "d", isSelected)
+			itemIndex++
 		}
 		for _, f := range SortedDirEntry(fileList) {
-			addFileItem(fs.list, f.Name(), "f")
+			isSelected := fs.selectedItems[itemIndex]
+			addFileItem(fs.list, f.Name(), "f", isSelected)
+			itemIndex++
 		}
 	}
-
 }
 
 func (fs *FileSystem) navigateTo(path string) {
 	fs.currentPath = path
+	fs.clearSelection()
 	fs.updateList()
+}
+
+func (fs *FileSystem) toggleSelection(index int) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	if fs.selectedItems[index] {
+		delete(fs.selectedItems, index)
+	} else {
+		fs.selectedItems[index] = true
+	}
+}
+
+func (fs *FileSystem) clearSelection() {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	fs.selectedItems = make(map[int]bool)
+}
+
+func (fs *FileSystem) getSelectedFiles() []string {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	var files []string
+	for idx := range fs.selectedItems {
+		if idx > 0 { // Skip ".." entry
+			text, _ := fs.list.GetItemText(idx)
+			filename := extractFilename(text)
+			if filename != "" {
+				files = append(files, filename)
+			}
+		}
+	}
+	return files
+}
+
+func extractFilename(text string) string {
+	// Remove selection mark, color tags, and icons
+	text = strings.TrimPrefix(text, "✓ ")
+	text = strings.TrimPrefix(text, "  ")
+
+	// Find the position after icons
+	startIdx := 0
+	for i, r := range text {
+		if r == ' ' && i > 0 {
+			startIdx = i + 1
+			break
+		}
+	}
+
+	if startIdx == 0 {
+		return ""
+	}
+
+	filename := text[startIdx:]
+	filename = strings.TrimSuffix(filename, "/")
+
+	// Remove color tags if present
+	if strings.Contains(filename, "[") {
+		parts := strings.Split(filename, " ")
+		if len(parts) > 1 {
+			filename = strings.Join(parts[1:], " ")
+		}
+	}
+
+	return filename
 }
 
 func publicKeyFile(file string) ssh.AuthMethod {
@@ -397,7 +482,6 @@ func sftpTransfer(remote, localFile, remoteFile, direction string, currentProgre
 	_, err = ptmx.Write([]byte(fmt.Sprintf("%s '%s' '%s'\n", direction, localFile, remoteFile)))
 	if err != nil {
 		return fmt.Errorf("failed to send %s command: %v", direction, err)
-
 	}
 	<-done
 	_, err = ptmx.Write([]byte("exit\n"))
@@ -411,7 +495,7 @@ func sftpTransfer(remote, localFile, remoteFile, direction string, currentProgre
 	return nil
 }
 
-func transferFile(hostId string, sourceFS, targetFS *FileSystem, filename string, progressBar *tview.TextView, app *tview.Application, flex_pbars *tview.Flex) error {
+func transferFile(hostId string, sourceFS, targetFS *FileSystem, filename string, progressBar *tview.TextView, app *tview.Application, flex_pbars *tview.Flex, jobNum, totalJobs int) error {
 	sourcePath := filepath.Join(sourceFS.currentPath, filename)
 	targetPath := filepath.Join(targetFS.currentPath, filename)
 
@@ -421,7 +505,7 @@ func transferFile(hostId string, sourceFS, targetFS *FileSystem, filename string
 	)
 
 	updateProgress := func() {
-		updateProgressBar(progressBar, "  Transferring", currentProgress, app, spinIndex, filename)
+		updateProgressBar(progressBar, fmt.Sprintf("  [%d/%d] Transferring", jobNum, totalJobs), currentProgress, app, spinIndex, filename)
 	}
 
 	ticker := time.NewTicker(100 * time.Millisecond)
@@ -453,13 +537,20 @@ func transferFile(hostId string, sourceFS, targetFS *FileSystem, filename string
 
 	app.QueueUpdateDraw(func() {
 		progressBar.Clear()
-		progressBar.SetText(fmt.Sprintf("  Transferred: [%s]", filename))
+		progressBar.SetText(fmt.Sprintf("  ✅ [%d/%d] Completed: [%s]", jobNum, totalJobs, filename))
+		progressBar.SetTextColor(tcell.ColorGreen)
 	})
 
 	sourceFS.updateList()
 	targetFS.updateList()
 
-	flex_pbars.RemoveItem(progressBar)
+	// Keep completed progress bars visible for a while before removing
+	go func() {
+		time.Sleep(5 * time.Second)
+		app.QueueUpdateDraw(func() {
+			flex_pbars.RemoveItem(progressBar)
+		})
+	}()
 
 	return nil
 }
@@ -470,10 +561,15 @@ func updateProgressBar(progressBar *tview.TextView, message, currentProgress str
 
 		_, _, width, _ := progressBar.GetInnerRect()
 
-		barWidth := width - (40 + len(filename))
+		barWidth := width - (45 + len(filename))
+		if barWidth < 10 {
+			barWidth = 10
+		}
+
 		progressSplit := strings.Split(currentProgress, "^")
 
 		if len(progressSplit) < 3 {
+			progressBar.SetText(fmt.Sprintf("%s: (%s) [yellow]⏳ Waiting...", message, filename))
 			return
 		}
 
@@ -490,7 +586,7 @@ func updateProgressBar(progressBar *tview.TextView, message, currentProgress str
 			filled = int(float64(barWidth) * float64(num_int) / 100.0)
 		}
 
-		bar := strings.Repeat("[cyan]#[white]", filled) + strings.Repeat("-", barWidth-filled)
+		bar := strings.Repeat("[cyan]█[white]", filled) + strings.Repeat("░", barWidth-filled)
 
 		spinner := []string{`⠋`, `⠙`, `⠹`, `⠸`, `⠼`, `⠴`, `⠦`, `⠧`, `⠇`, `⠏`}
 
@@ -509,25 +605,55 @@ func updateProgressBar(progressBar *tview.TextView, message, currentProgress str
 }
 
 func detectItemType(item string) string {
-
-	if strings.Contains(item, "🌀🗂️") {
+	if strings.Contains(item, "🌀📁") {
 		return "ld"
 	}
-
-	if strings.Contains(item, "🌀📝") {
+	if strings.Contains(item, "🌀📄") {
 		return "lf"
 	}
-
-	if strings.Contains(item, "📝") {
+	if strings.Contains(item, "📄") {
 		return "f"
 	}
-
 	return "d"
+}
 
+func createLegend() *tview.TextView {
+	legend := tview.NewTextView().
+		SetDynamicColors(true).
+		SetRegions(true).
+		SetWrap(false).
+		SetTextAlign(tview.AlignCenter)
+
+	legendText := `[yellow]【 Keyboard Shortcuts 】[white]
+[cyan]Tab[white]: Switch panes │ [cyan]Space[white]: Select/Deselect │ [cyan]Enter[white]: Open/Transfer │ [cyan]a[white]: Select All │ [cyan]d[white]: Deselect All │ [cyan]t[white]: Transfer Selected │ [cyan]q/Ctrl+C[white]: Quit`
+
+	legend.SetText(legendText)
+	legend.SetBorder(true).SetBorderPadding(0, 0, 1, 1)
+	return legend
+}
+
+func createStatusBar(localFS, remoteFS *FileSystem) *tview.TextView {
+	status := tview.NewTextView().
+		SetDynamicColors(true).
+		SetRegions(true).
+		SetWrap(false)
+
+	updateStatus := func() {
+		localSelected := len(localFS.getSelectedFiles())
+		remoteSelected := len(remoteFS.getSelectedFiles())
+
+		statusText := fmt.Sprintf(" [green]Local:[white] %s [yellow](%d selected)[white] │ [blue]Remote:[white] %s [yellow](%d selected)[white] ",
+			localFS.currentPath, localSelected,
+			remoteFS.currentPath, remoteSelected)
+
+		status.SetText(statusText)
+	}
+
+	updateStatus()
+	return status
 }
 
 func INIT_SFTP(hostId, host, user, password, port, key string) error {
-
 	sftpClient, sshClient, err := opentheGates(host+":"+port, user, key, password)
 	if err != nil {
 		log.Printf("Failed to create SFTP client: %v\n", err)
@@ -545,24 +671,77 @@ func INIT_SFTP(hostId, host, user, password, port, key string) error {
 		AddItem(localFS.list, 0, 1, true).
 		AddItem(remoteFS.list, 0, 1, false)
 
+	// Create progress bar container with title
 	flex_pbar := tview.NewFlex()
 	flex_pbar.SetDirection(tview.FlexRow)
+	flex_pbar.SetBorder(true).SetTitle(" Transfer Queue ")
+
+	// Create legend
+	legend := createLegend()
+
+	// Create status bar
+	statusBar := createStatusBar(localFS, remoteFS)
 
 	mainFlex := tview.NewFlex().
 		SetDirection(tview.FlexRow).
+		AddItem(legend, 3, 0, false).
 		AddItem(flex, 0, 5, true).
-		AddItem(flex_pbar, 0, 1, false)
+		AddItem(flex_pbar, 8, 0, false).
+		AddItem(statusBar, 1, 0, false)
 
 	localFS.updateList()
 	remoteFS.updateList()
 
 	go closeAll(prepareOsSig(), app)
 
-	// Initial view (rootfs) has been created. Now it's waiting for the user interaction:
-	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		switch event.Key() {
+	// Function to update status bar
+	updateStatusBar := func() {
+		localSelected := len(localFS.getSelectedFiles())
+		remoteSelected := len(remoteFS.getSelectedFiles())
 
-		// On Tab press, switch the focus between local and remote panes.
+		statusText := fmt.Sprintf(" [green]Local:[white] %s [yellow](%d selected)[white] │ [blue]Remote:[white] %s [yellow](%d selected)[white] ",
+			localFS.currentPath, localSelected,
+			remoteFS.currentPath, remoteSelected)
+
+		statusBar.SetText(statusText)
+	}
+
+	// Function to transfer selected files
+	transferSelectedFiles := func(sourceFS, targetFS *FileSystem) {
+		selectedFiles := sourceFS.getSelectedFiles()
+		if len(selectedFiles) == 0 {
+			return
+		}
+
+		totalJobs := len(selectedFiles)
+		for i, filename := range selectedFiles {
+			p := tview.NewTextView().
+				SetDynamicColors(true).
+				SetRegions(true).
+				SetWrap(false).
+				SetTextAlign(tview.AlignLeft)
+
+			flex_pbar.AddItem(p, 1, 0, false)
+
+			jobNum := i + 1
+			go transferFile(hostId, sourceFS, targetFS, filename, p, app, flex_pbar, jobNum, totalJobs)
+		}
+
+		sourceFS.clearSelection()
+		updateStatusBar()
+	}
+
+	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		currentList := app.GetFocus().(*tview.List)
+		currentFS := localFS
+		targetFS := remoteFS
+
+		if currentList == remoteFS.list {
+			currentFS = remoteFS
+			targetFS = localFS
+		}
+
+		switch event.Key() {
 		case tcell.KeyTab:
 			if app.GetFocus() == localFS.list {
 				app.SetFocus(remoteFS.list)
@@ -571,54 +750,81 @@ func INIT_SFTP(hostId, host, user, password, port, key string) error {
 			}
 			return nil
 
-		// on Enter press, if it's a file, initiate transfer. if it's a folder, go in
+		case tcell.KeyRune:
+			switch event.Rune() {
+			case ' ': // Space for selection
+				selectedItem := currentList.GetCurrentItem()
+				if selectedItem > 0 { // Don't select ".."
+					currentFS.toggleSelection(selectedItem)
+					currentFS.updateList()
+					updateStatusBar()
+				}
+				return nil
+
+			case 'a', 'A': // Select all
+				for i := 1; i < currentList.GetItemCount(); i++ {
+					text, _ := currentList.GetItemText(i)
+					itemType := detectItemType(text)
+					if itemType == "f" || itemType == "lf" { // Only select files
+						currentFS.selectedItems[i] = true
+					}
+				}
+				currentFS.updateList()
+				updateStatusBar()
+				return nil
+
+			case 'd', 'D': // Deselect all
+				currentFS.clearSelection()
+				currentFS.updateList()
+				updateStatusBar()
+				return nil
+
+			case 't', 'T': // Transfer selected files
+				transferSelectedFiles(currentFS, targetFS)
+				return nil
+
+			case 'q', 'Q': // Quit
+				app.Stop()
+				return nil
+			}
+
 		case tcell.KeyEnter:
-			currentList := app.GetFocus().(*tview.List)
-			currentFS := localFS
-			targetFS := remoteFS
-
-			if currentList == remoteFS.list {
-				currentFS = remoteFS
-				targetFS = localFS
-			}
-
 			selectedItem := currentList.GetCurrentItem()
-			selectedPath := ""
 
-			//If the Entered items is the first one (..), move 1 level back
-			if selectedItem == 0 {
-				parentDir := filepath.Dir(currentFS.currentPath)
-				currentFS.navigateTo(parentDir)
-
+			// Check if there are selected items
+			if len(currentFS.getSelectedFiles()) > 0 {
+				// Transfer all selected files
+				transferSelectedFiles(currentFS, targetFS)
 			} else {
-				//Extract the file/folder name without colottags and emojis ==> selectedPath
-				selectedText, _ := currentList.GetItemText(selectedItem)
-				itemType := detectItemType(selectedText)
-				if string(selectedText[0]) == "[" {
-					leadSpace := strings.Index(selectedText, " ")
-					selectedPath = strings.TrimSpace(selectedText[leadSpace:])
+				// Original behavior for single item
+				selectedPath := ""
+
+				if selectedItem == 0 {
+					parentDir := filepath.Dir(currentFS.currentPath)
+					currentFS.navigateTo(parentDir)
+					updateStatusBar()
 				} else {
-					selectedPath = selectedText
-				}
+					selectedText, _ := currentList.GetItemText(selectedItem)
+					itemType := detectItemType(selectedText)
+					selectedPath = extractFilename(selectedText)
 
-				// if the item has "/" at the end, it's a folder.
-				if strings.Contains(itemType, "d") {
-					newPath := filepath.Join(currentFS.currentPath, strings.TrimSuffix(selectedPath, "/"))
-					currentFS.navigateTo(newPath)
-				} else if itemType == "f" {
-					// File selected, implement file transfer here
-					p := tview.NewTextView().
-						SetDynamicColors(true).
-						SetRegions(true).
-						SetWrap(false).
-						SetTextAlign(tview.AlignLeft)
+					if strings.Contains(itemType, "d") {
+						newPath := filepath.Join(currentFS.currentPath, selectedPath)
+						currentFS.navigateTo(newPath)
+						updateStatusBar()
+					} else if itemType == "f" || itemType == "lf" {
+						// Single file transfer
+						p := tview.NewTextView().
+							SetDynamicColors(true).
+							SetRegions(true).
+							SetWrap(false).
+							SetTextAlign(tview.AlignLeft)
 
-					flex_pbar.AddItem(p, 0, 1, false)
-
-					go transferFile(hostId, currentFS, targetFS, selectedPath, p, app, flex_pbar)
+						flex_pbar.AddItem(p, 1, 0, false)
+						go transferFile(hostId, currentFS, targetFS, selectedPath, p, app, flex_pbar, 1, 1)
+					}
 				}
 			}
-
 			return nil
 		}
 		return event
