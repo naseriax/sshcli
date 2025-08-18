@@ -586,7 +586,7 @@ func updateProgressBar(progressBar *tview.TextView, message, currentProgress str
 			filled = int(float64(barWidth) * float64(num_int) / 100.0)
 		}
 
-		bar := strings.Repeat("[cyan]█[white]", filled) + strings.Repeat("░", barWidth-filled)
+		bar := strings.Repeat("[cyan]#[white]", filled) + strings.Repeat("░", barWidth-filled)
 
 		spinner := []string{`⠋`, `⠙`, `⠹`, `⠸`, `⠼`, `⠴`, `⠦`, `⠧`, `⠇`, `⠏`}
 
@@ -624,9 +624,7 @@ func createLegend() *tview.TextView {
 		SetWrap(false).
 		SetTextAlign(tview.AlignCenter)
 
-	legendText := `[yellow]【 Keyboard Shortcuts 】[white]
-[cyan]Tab[white]: Switch panes │ [cyan]Space[white]: Select/Deselect │ [cyan]Enter[white]: Open/Transfer │ [cyan]a[white]: Select All │ [cyan]d[white]: Deselect All │ [cyan]t[white]: Transfer Selected │ [cyan]q/Ctrl+C[white]: Quit`
-
+	legendText := `[yellow]【 Keyboard Shortcuts 】[white][cyan]Tab[white]: Switch panes │ [cyan]Space[white]: Select/Deselect │ [cyan]Enter[white]: Open/Transfer │ [cyan]a[white]: Select All │ [cyan]d[white]: Deselect All │ [cyan]t[white]: Transfer Selected │ [cyan]q/Ctrl+C[white]: Quit`
 	legend.SetText(legendText)
 	legend.SetBorder(true).SetBorderPadding(0, 0, 1, 1)
 	return legend

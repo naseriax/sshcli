@@ -534,7 +534,7 @@ func extractHost(profileName, configPath string) (SSHConfig, error) {
 }
 
 func editProfile(profileName, configPath string) error {
-	tmpfile, err := os.CreateTemp("", "ssh-profile-*.txt")
+	tmpfile, err := os.CreateTemp("", "ssh-profile-*.md")
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %v", err)
 	}
@@ -1171,7 +1171,7 @@ func navigateToNext(chosen string, hosts []SSHConfig, configPath string) error {
 
 func updateNotesAndPushToDb(host string) error {
 
-	tmpfile, err := os.CreateTemp("", "ssh-profile-note-*.txt")
+	tmpfile, err := os.CreateTemp("", "ssh-profile-note-*.md")
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %v", err)
 	}
@@ -2264,7 +2264,7 @@ func readConsoleProfileFromDb(host string) (ConsoleConfig, error) {
 }
 
 func editConsoleProfile(config ConsoleConfig) error {
-	tmpfile, err := os.CreateTemp("", "console-profile-*.txt")
+	tmpfile, err := os.CreateTemp("", "console-profile-*.md")
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %v", err)
 	}
