@@ -611,7 +611,6 @@ func editProfile(profileName, configPath string) error {
 		}
 
 		if newHost.Host != "" {
-			// deleteSSHProfile(newHost.Host)
 			if newHost.Host == config.Host {
 				fmt.Printf("Modified profile for %s\n", profileName)
 			} else {
@@ -622,13 +621,16 @@ func editProfile(profileName, configPath string) error {
 					}
 				} else {
 					newHost.Folder = foldername
-					updateSSHConfig(configPath, newHost)
 					if err := updateProfileFolder(newHost.Host, newHost.Folder, ""); err != nil {
 						log.Printf("failed to push the new host's (%v) folder to the database:%v", newHost.Host, err.Error())
 					}
 				}
 
 				fmt.Printf("A new profile:%s has been added\n", newHost.Host)
+			}
+
+			if err := updateSSHConfig(configPath, newHost); err != nil {
+				return fmt.Errorf("failed to update SSH config: %w", err)
 			}
 
 		} else {
