@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"strings"
 )
@@ -44,7 +45,7 @@ func encryptAndPushPassToDB(hostname, password string) error {
 		return fmt.Errorf("failed to insert the password for the host %v: %v", hostname, err)
 	}
 
-	fmt.Println("\nPassword has been successfully added to the password database!")
+	log.Println("\nPassword has been successfully added to the password database!")
 	return tx.Commit()
 }
 

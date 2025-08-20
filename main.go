@@ -626,7 +626,45 @@ func editProfile(profileName, configPath string) error {
 					}
 				}
 
-				fmt.Printf("A new profile:%s has been added\n", newHost.Host)
+				prompt := promptui.Select{
+					Label: "Select Option",
+					Items: []string{"Rename host", fmt.Sprintf("Save and duplicate as %s", newHost.Host)},
+					Size:  2,
+					Templates: &promptui.SelectTemplates{
+						Label:    "{{ . }}?",
+						Active:   "\U0001F534 {{ . | cyan }}",
+						Inactive: "  {{ . | cyan }}",
+						Selected: "\U0001F7E2 {{ . | red | cyan }}",
+					},
+				}
+
+				_, whatToDo, err := prompt.Run()
+				if err != nil {
+					handleExitSignal(err)
+					return fmt.Errorf("error selecting option: %w", err)
+				}
+				if whatToDo == "Rename host" {
+					oldPass, err := readAndDecryptPassFromDB(config.Host)
+					if err != nil {
+						if !strings.Contains(err.Error(), "no password found") {
+							return fmt.Errorf("failed to read old password from DB: %w", err)
+						}
+					}
+					if len(oldPass) > 0 {
+						if err := encryptAndPushPassToDB(newHost.Host, oldPass); err != nil {
+							return fmt.Errorf("failed to push old password to DB: %w", err)
+						}
+					}
+
+					if err := deleteSSHProfile(config.Host); err != nil {
+						return fmt.Errorf("failed to delete old SSH profile: %w", err)
+					}
+
+					fmt.Printf("Modified the profile name from %s to %s\n", config.Host, newHost.Host)
+
+				} else {
+					fmt.Printf("A new profile:%s has been added\n", newHost.Host)
+				}
 			}
 
 			if err := updateSSHConfig(configPath, newHost); err != nil {
@@ -908,9 +946,9 @@ func removeValue(hostname string) error {
 	}
 
 	if rowsAffected == 0 {
-		fmt.Printf("ℹ️ No record found for host '%s'.\n", hostname)
+		log.Printf("ℹ️ No record found for host '%s'.\n", hostname)
 	} else {
-		fmt.Printf("🗑️ Successfully deleted %d record(s) for host '%s'.\n", rowsAffected, hostname)
+		log.Printf("🗑️ Successfully deleted %d record(s) '%s'.\n", rowsAffected, hostname)
 	}
 
 	return tx.Commit()
@@ -1342,8 +1380,9 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 				log.Println(err)
 			}
 		} else if strings.EqualFold(command, "Duplicate/Edit Profile") {
-			editProfile(hostName, configPath)
-
+			if err := editProfile(hostName, configPath); err != nil {
+				return err
+			}
 		} else if strings.EqualFold(command, "Remove Profile") {
 			deleteSSHProfile(hostName)
 
