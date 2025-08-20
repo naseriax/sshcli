@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"slices"
 	"sort"
 	"sshcli/pkgs/sftp_ui"
 	"strconv"
@@ -622,7 +623,7 @@ func editProfile(profileName, configPath string) error {
 				} else {
 					newHost.Folder = foldername
 					updateSSHConfig(configPath, newHost)
-					if err := updateProfileFolder(newHost.Host, newHost.Folder); err != nil {
+					if err := updateProfileFolder(newHost.Host, newHost.Folder, ""); err != nil {
 						log.Printf("failed to push the new host's (%v) folder to the database:%v", newHost.Host, err.Error())
 					}
 				}
@@ -1998,6 +1999,7 @@ func moveToFolder(hostName string) error {
 	}
 
 	FolderList = append(FolderList, "New Folder")
+	FolderList = append(FolderList, "Rename Folder")
 	FolderList = append(FolderList, "Remove from folder")
 	folderName := ""
 
@@ -2020,7 +2022,8 @@ func moveToFolder(hostName string) error {
 	}
 
 	new_folder_name := ""
-	if strings.EqualFold(folderName, "New Folder") {
+	currentFolder := ""
+	if strings.EqualFold(folderName, "New Folder") || strings.EqualFold(folderName, "Rename folder") {
 		var name string
 		fmt.Print("New folder name: ")
 		scanner := bufio.NewScanner(os.Stdin)
@@ -2036,14 +2039,19 @@ func moveToFolder(hostName string) error {
 			return fmt.Errorf("invalid folder name")
 		}
 
-		for _, p := range FolderList {
-			if p == name {
-				fmt.Println("Folder with name", name, "already exists. Doing nothing!")
-				return fmt.Errorf("folder with name %s already exists", name)
-			}
+		if slices.Contains(FolderList, name) {
+			fmt.Println("Folder with name", name, "already exists. Doing nothing!")
+			return fmt.Errorf("folder with name %s already exists", name)
 		}
 
 		new_folder_name = name
+
+		if strings.EqualFold(folderName, "Rename folder") {
+			currentFolder, err = readFolderForHostFromDB(hostName)
+			if err != nil {
+				return fmt.Errorf("error reading folder for host from db: %w", err)
+			}
+		}
 
 	} else if strings.EqualFold(folderName, "Remove from folder") {
 		new_folder_name = "NULL"
@@ -2051,7 +2059,7 @@ func moveToFolder(hostName string) error {
 		new_folder_name = folderName
 	}
 
-	if err := updateProfileFolder(hostName, new_folder_name); err != nil {
+	if err := updateProfileFolder(hostName, new_folder_name, currentFolder); err != nil {
 		return err
 	}
 
@@ -2130,23 +2138,31 @@ func getFolderList() ([]string, error) {
 	return folderlist, nil
 }
 
-func updateProfileFolder(hostname, foldername string) error {
+func updateProfileFolder(hostname, newFolderName, currentFolderName string) error {
 
 	tx, err := db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin the db transaction for folder update:%v", err)
 	}
 
-	stmt, err := tx.Prepare("INSERT INTO sshprofiles(host,folder) VALUES(?,?) ON CONFLICT(host) DO UPDATE SET folder = excluded.folder;")
+	sql_clause := "INSERT INTO sshprofiles(host,folder) VALUES(?,?) ON CONFLICT(host) DO UPDATE SET folder = excluded.folder;"
+
+	if len(currentFolderName) > 0 {
+		sql_clause = "UPDATE sshprofiles SET folder = ? WHERE folder = ?;"
+	}
+
+	stmt, err := tx.Prepare(sql_clause)
 	if err != nil {
 		return fmt.Errorf("failed to prepare the db for folder update:%v", err)
 	}
 	defer stmt.Close()
 
-	if foldername == "NULL" {
+	if len(currentFolderName) > 0 {
+		_, err = stmt.Exec(newFolderName, currentFolderName)
+	} else if newFolderName == "NULL" {
 		_, err = stmt.Exec(hostname, sql.NullString{String: "", Valid: false})
 	} else {
-		_, err = stmt.Exec(hostname, foldername)
+		_, err = stmt.Exec(hostname, newFolderName)
 	}
 	if err != nil {
 		return fmt.Errorf("failed to update the folder for the host %v: %v", hostname, err)
