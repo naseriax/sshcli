@@ -1562,12 +1562,12 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 			}
 
 			// make sure sftp or ssh commands are availble in the shell
-			if err := checkShellCommands(command); err != nil {
+			if err := checkShellCommands(strings.ToLower(command)); err != nil {
 				fmt.Println(err.Error())
 				return fmt.Errorf("command not found: %w", err)
 			}
 
-			cmd := *exec.Command(command, hostName)
+			cmd := *exec.Command(strings.ToLower(command), hostName)
 			method := "key"
 			password := `''`
 
