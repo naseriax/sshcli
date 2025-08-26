@@ -2085,7 +2085,7 @@ func AddForwardSocketToProfile(hostName, configPath string) error {
 	}
 
 	var target_socket string
-	fmt.Print("Enter socket address (eg. 10.10.10.10:8080):")
+	fmt.Print("Enter socket address (eg. 10.10.10.10:8080): ")
 	scanner := bufio.NewScanner(os.Stdin)
 	if scanner.Scan() {
 		target_socket = scanner.Text()
