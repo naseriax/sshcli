@@ -1373,6 +1373,7 @@ func findAvailablePort() (int, error) {
 
 	// Get the address of the listener and return the port.
 	port := listener.Addr().(*net.TCPAddr).Port
+	fmt.Println("Found available port:", port)
 	return port, nil
 }
 
