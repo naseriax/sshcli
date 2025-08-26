@@ -51,14 +51,15 @@ var consoleIcon = "📟"
 
 // SSHConfig represents the configuration for an SSH host entry
 type SSHConfig struct {
-	Host         string
-	HostName     string
-	User         string
-	Port         string
-	Proxy        string
-	IdentityFile string
-	Password     string
-	Folder       string
+	Host          string
+	HostName      string
+	User          string
+	Port          string
+	Proxy         string
+	ForwardSocket string
+	IdentityFile  string
+	Password      string
+	Folder        string
 }
 
 type FileNode struct {
@@ -718,10 +719,18 @@ func updateSSHConfig(configPath string, config SSHConfig) error {
 			if config.Proxy == "" && strings.Contains(trimmedLine, "Proxy") {
 				continue
 			}
+
+			if config.ForwardSocket == "" && strings.Contains(trimmedLine, "Forward") {
+				continue
+			}
 			// Parse and potentially update each field in the host block
 			field, value := parseField(trimmedLine)
 			if strings.Contains(field, "Proxy") {
 				value = config.Proxy
+			}
+
+			if strings.Contains(field, "Forward") {
+				value = config.ForwardSocket
 			}
 			if newValue := getUpdatedValue(config, field); newValue != "" {
 				newLines = append(newLines, fmt.Sprintf("    %s %s", field, newValue))
@@ -785,6 +794,8 @@ func getUpdatedValue(config SSHConfig, field string) string {
 		return config.User
 	case "proxycommand":
 		return config.Proxy
+	case "forwardsocket":
+		return config.ForwardSocket
 	case "port":
 		return config.Port
 	case "identityfile":
@@ -815,6 +826,10 @@ func addMissingFields(config SSHConfig, updatedFields map[string]bool) []string 
 		missingFields = append(missingFields, fmt.Sprintf("    ProxyCommand %s", config.Proxy))
 	}
 
+	if config.ForwardSocket != "" && !updatedFields["LocalForward"] {
+		missingFields = append(missingFields, fmt.Sprintf("    LocalForward %s", config.ForwardSocket))
+	}
+
 	if config.IdentityFile != "" && !updatedFields["IdentityFile"] {
 		missingFields = append(missingFields, fmt.Sprintf("    IdentityFile %s", config.IdentityFile))
 	}
@@ -841,6 +856,10 @@ func generateHostBlock(config SSHConfig) []string {
 	}
 	if config.Proxy != "" {
 		block = append(block, fmt.Sprintf("    ProxyCommand %s", config.Proxy))
+	}
+
+	if config.ForwardSocket != "" {
+		block = append(block, fmt.Sprintf("    LocalForward %s", config.ForwardSocket))
 	}
 	// Add other fields as needed
 	return block
@@ -1012,7 +1031,8 @@ func processCliArgs() (ConsoleConfig, SSHConfig, *string, string) {
 	version := flag.Bool("version", false, "prints the compile time (version)")
 	sql := flag.Bool("sql", false, "Direct access to the sshcli.db file to run sql queries")
 	profileType := flag.String("type", "ssh", "profile type, can be ssh or console, default is ssh")
-	proxy := flag.String("httpproxy", "", "http proxy to be used for the ssh/sftp over http connectivity (optional),eg. 10.10.10.10:8000")
+	proxy := flag.String("http_proxy", "", "http proxy to be used for the ssh/sftp over http connectivity (optional),eg. 10.10.10.10:8000")
+	forwardsocket := flag.String("forward_socket", "", "The ssh tunnel param to create a ssh tunnel using \"ssh -L <localPort>:<TargetMachine>:<TargetPort> JumpServerProfile\" command (optional),eg. 10.10.10.10:8000")
 
 	flag.Parse()
 
@@ -1055,12 +1075,13 @@ func processCliArgs() (ConsoleConfig, SSHConfig, *string, string) {
 		}
 	case "ssh":
 		sshProfile = SSHConfig{
-			Host:         *host,
-			HostName:     *hostname,
-			Password:     passString,
-			User:         *username,
-			Port:         *port,
-			IdentityFile: *identityFile,
+			Host:          *host,
+			HostName:      *hostname,
+			ForwardSocket: *forwardsocket,
+			Password:      passString,
+			User:          *username,
+			Port:          *port,
+			IdentityFile:  *identityFile,
 		}
 
 		if len(sshProfile.IdentityFile) > 0 {
@@ -1070,6 +1091,14 @@ func processCliArgs() (ConsoleConfig, SSHConfig, *string, string) {
 
 		if len(*proxy) > 0 {
 			sshProfile.Proxy = "nc -X connect -x " + *proxy + " %h %p"
+		}
+		if len(*forwardsocket) > 0 {
+			localport, err := findAvailablePort()
+			if err != nil {
+				fmt.Println("Error finding an empty local port:", err)
+				os.Exit(1)
+			}
+			sshProfile.ForwardSocket = fmt.Sprintf("%d %s", localport, *forwardsocket)
 		}
 	}
 
@@ -1329,6 +1358,24 @@ func updateNotesAndPushToDb(host string) error {
 	return nil
 }
 
+func findAvailablePort() (int, error) {
+	// Listen on port 0, which lets the OS choose a free port.
+	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
+	if err != nil {
+		return 0, err
+	}
+
+	listener, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		return 0, err
+	}
+	defer listener.Close()
+
+	// Get the address of the listener and return the port.
+	port := listener.Addr().(*net.TCPAddr).Port
+	return port, nil
+}
+
 func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 
 	chosen_type := ""
@@ -1416,8 +1463,12 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 
 		} else if strings.EqualFold(command, "Set http proxy") {
 			AddProxyToProfile(hostName, configPath)
+		} else if strings.EqualFold(command, "Set SSH Tunnel") {
+			AddForwardSocketToProfile(hostName, configPath)
 		} else if strings.EqualFold(command, "Remove http proxy") {
 			DeleteProxyFromProfile(hostName, configPath)
+		} else if strings.EqualFold(command, "Remove SSH Tunnel") {
+			DeleteFordwardSocketFromProfile(hostName, configPath)
 		} else if strings.EqualFold(command, "Set Password") {
 			fmt.Print("\nEnter password: ")
 			bytePassword, err := term.ReadPassword(int(syscall.Stdin))
@@ -1704,6 +1755,8 @@ func getHosts(sshConfigPath string) []SSHConfig {
 				currentHost.Port = after
 			} else if after, ok := strings.CutPrefix(line, "ProxyCommand "); ok {
 				currentHost.Proxy = after
+			} else if after, ok := strings.CutPrefix(line, "LocalForward "); ok {
+				currentHost.ForwardSocket = after
 			} else if after, ok := strings.CutPrefix(line, "IdentityFile "); ok {
 				currentHost.IdentityFile = after
 			}
@@ -1804,6 +1857,10 @@ func getItems(hosts []SSHConfig, isSubmenu bool) []string {
 
 		if len(host.Proxy) > 0 {
 			item += " - 📡"
+		}
+
+		if len(host.ForwardSocket) > 0 {
+			item += " - 🚇"
 		}
 
 		if isThereAnyNote(host.Host) {
@@ -2020,6 +2077,49 @@ func AddProxyToProfile(hostName, configPath string) error {
 	return nil
 }
 
+func AddForwardSocketToProfile(hostName, configPath string) error {
+	localport, err := findAvailablePort()
+	if err != nil {
+		return err
+	}
+
+	var target_socket string
+	fmt.Print("Enter socket address (eg. 10.10.10.10:8080):")
+	scanner := bufio.NewScanner(os.Stdin)
+	if scanner.Scan() {
+		target_socket = scanner.Text()
+	}
+
+	if err := scanner.Err(); err != nil {
+		fmt.Fprintln(os.Stderr, "Error reading the socket address from stdin:", err)
+	}
+
+	if len(target_socket) == 0 {
+		return fmt.Errorf("socket address is not provided")
+	}
+
+	cleanTargetSocket, err := IsProxyValid(target_socket)
+	if err != nil {
+		fmt.Println("Socket address was not formatted properly!")
+		return err
+	}
+
+	forwardSocket := fmt.Sprintf("%d %s", localport, cleanTargetSocket)
+	h, err := extractHost(hostName, configPath)
+	if err != nil {
+		fmt.Println(err)
+		return fmt.Errorf("error extracting host: %w", err)
+	}
+
+	h.ForwardSocket = forwardSocket
+
+	if err := updateSSHConfig(configPath, h); err != nil {
+		fmt.Println("Error adding/updating profile:", err)
+		return fmt.Errorf("error adding/updating profile: %w", err)
+	}
+	return nil
+}
+
 func DeleteProxyFromProfile(hostName, configPath string) error {
 
 	h, err := extractHost(hostName, configPath)
@@ -2029,6 +2129,24 @@ func DeleteProxyFromProfile(hostName, configPath string) error {
 	}
 
 	h.Proxy = ""
+
+	if err := updateSSHConfig(configPath, h); err != nil {
+		fmt.Println("Error adding/updating profile:", err)
+		return fmt.Errorf("error adding/updating profile: %w", err)
+	}
+
+	return nil
+}
+
+func DeleteFordwardSocketFromProfile(hostName, configPath string) error {
+
+	h, err := extractHost(hostName, configPath)
+	if err != nil {
+		fmt.Println(err)
+		return fmt.Errorf("error extracting host: %w", err)
+	}
+
+	h.ForwardSocket = ""
 
 	if err := updateSSHConfig(configPath, h); err != nil {
 		fmt.Println("Error adding/updating profile:", err)
