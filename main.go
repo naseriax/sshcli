@@ -2079,13 +2079,10 @@ func AddProxyToProfile(hostName, configPath string) error {
 }
 
 func AddForwardSocketToProfile(hostName, configPath string) error {
-	localport, err := findAvailablePort()
-	if err != nil {
-		return err
-	}
-
+	var localport int
+	var err error
 	var target_socket string
-	fmt.Print("Enter socket address (eg. 10.10.10.10:8080): ")
+	fmt.Print("Enter socket address (eg. <remotehost>:<remoteport> for random local port, or <localport>:<remotehost>:<remoteport>): ")
 	scanner := bufio.NewScanner(os.Stdin)
 	if scanner.Scan() {
 		target_socket = scanner.Text()
@@ -2098,7 +2095,21 @@ func AddForwardSocketToProfile(hostName, configPath string) error {
 	if len(target_socket) == 0 {
 		return fmt.Errorf("socket address is not provided")
 	}
-
+	parts := strings.Split(target_socket, ":")
+	if len(parts) == 3 {
+		localport, err = strconv.Atoi(parts[0])
+		if err != nil {
+			return err
+		}
+		target_socket = parts[1] + ":" + parts[2]
+	} else if len(parts) == 2 {
+		localport, err = findAvailablePort()
+		if err != nil {
+			return err
+		}
+	} else {
+		return fmt.Errorf("socket address is not valid")
+	}
 	cleanTargetSocket, err := IsProxyValid(target_socket)
 	if err != nil {
 		fmt.Println("Socket address was not formatted properly!")
