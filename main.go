@@ -1687,7 +1687,7 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 			return fmt.Errorf("error reading console profile: %w", err)
 		}
 
-		if strings.ToLower(command) == "connect" {
+		if strings.ToLower(command) == "connect via cu" {
 
 			cmd := *exec.Command("sudo", "cu", "-s", consoleProfile.BaudRate, "-l", consoleProfile.Device)
 			cmd.Stdin = os.Stdin
