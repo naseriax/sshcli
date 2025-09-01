@@ -657,6 +657,21 @@ func editProfile(profileName, configPath string) error {
 						}
 					}
 
+					oldNote, err := readNoteforHost(config.Host)
+					if err != nil {
+						return err
+					}
+					if len(oldNote) > 0 {
+						encryptedContent, err := encrypt([]byte(oldNote))
+						if err != nil {
+							return err
+						}
+
+						if err := WriteNoteToDb(encryptedContent, newHost.Host); err != nil {
+							return err
+						}
+					}
+
 					if err := deleteSSHProfile(config.Host); err != nil {
 						return fmt.Errorf("failed to delete old SSH profile: %w", err)
 					}
@@ -1239,29 +1254,18 @@ func navigateToNext(chosen string, hosts []SSHConfig, configPath string) error {
 	return nil
 }
 
-func updateNotesAndPushToDb(host string) error {
-
-	tmpfile, err := os.CreateTemp("", "ssh-profile-note-*.md")
-	if err != nil {
-		return fmt.Errorf("failed to create temp file: %v", err)
-	}
-
-	defer os.Remove(tmpfile.Name())
-
-	writer := bufio.NewWriter(tmpfile)
-
+func readNoteforHost(host string) (string, error) {
 	var currentNotes sql.NullString
-
 	query := "SELECT note FROM sshprofiles WHERE host = ?"
 	row := db.QueryRow(query, host)
 
-	err = row.Scan(&currentNotes)
+	err := row.Scan(&currentNotes)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return fmt.Errorf("host: %s not found", host)
+			return "", fmt.Errorf("host: %s not found", host)
 		}
 
-		return fmt.Errorf("error reading note for profile %v from db: %v", host, err)
+		return "", fmt.Errorf("error reading note for profile %v from db: %v", host, err)
 	}
 
 	if currentNotes.Valid {
@@ -1275,11 +1279,29 @@ func updateNotesAndPushToDb(host string) error {
 		}
 
 		// If the value is not NULL, use the .String field
-		fmt.Fprintln(writer, decryptedNote)
+		return decryptedNote, nil
 	} else {
 		// Handle the NULL case, for example, by writing an empty string or a placeholder
-		fmt.Fprintln(writer, "")
+		return "", nil
 	}
+}
+
+func updateNotesAndPushToDb(host string) error {
+
+	tmpfile, err := os.CreateTemp("", "ssh-profile-note-*.md")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %v", err)
+	}
+
+	defer os.Remove(tmpfile.Name())
+
+	writer := bufio.NewWriter(tmpfile)
+
+	currentNote, err := readNoteforHost(host)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(writer, currentNote)
 
 	if err := writer.Flush(); err != nil {
 		return fmt.Errorf("failed to write current note to the temp file for profile %v: %w", host, err)
@@ -1332,30 +1354,34 @@ func updateNotesAndPushToDb(host string) error {
 			log.Println(err)
 		}
 
-		updateQuery := "UPDATE sshprofiles SET note = ? WHERE host = ?"
-
-		tx, err := db.Begin()
-		if err != nil {
-			return fmt.Errorf("failed to begin the db transaction for note update:%v", err)
-		}
-		stmt, err := tx.Prepare(updateQuery)
-		if err != nil {
-			return fmt.Errorf("failed to prepare update statement: %w", err)
-		}
-		defer stmt.Close()
-
-		_, err = stmt.Exec(encryptedContent, host)
-		if err != nil {
-			return fmt.Errorf("failed to update note for host %s: %w", host, err)
-		}
-
-		return tx.Commit()
+		return WriteNoteToDb(encryptedContent, host)
 
 	} else {
 		fmt.Printf("Note for profile %s was not modified.\n", host)
 	}
 
 	return nil
+}
+
+func WriteNoteToDb(note, host string) error {
+	updateQuery := "UPDATE sshprofiles SET note = ? WHERE host = ?"
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin the db transaction for note update:%v", err)
+	}
+	stmt, err := tx.Prepare(updateQuery)
+	if err != nil {
+		return fmt.Errorf("failed to prepare update statement: %w", err)
+	}
+	defer stmt.Close()
+
+	_, err = stmt.Exec(note, host)
+	if err != nil {
+		return fmt.Errorf("failed to update note for host %s: %w", host, err)
+	}
+
+	return tx.Commit()
 }
 
 func findAvailablePort() (int, error) {
