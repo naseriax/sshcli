@@ -55,6 +55,8 @@ To compile the code, you must have Golang installed on your system.
   - Run the tool by calling the binary.
 
 ## Usage
+
+- Just run `sshcli` on your terminal to see the UI
 - Add or update a profile in the ~/.ssh/config file:
 ```
  # sshcli --action add --host t001 --hostname 10.10.10.10 --key '~/.ssh/id_rsa' --username root  --port 22 --askpass
