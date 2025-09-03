@@ -13,16 +13,30 @@ sshcli is a command-line interface tool that uses the ~/.ssh/config file as a pr
 ## Installation
 - MacOS (Apple Silicon):
 ```
-Run this command on terminal:
-
-curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/install_sshcli.sh | zsh
-
-This script does below changes on your machine:
- - Creates a new folder: ~/sshcli
- - Downloads the sshcli binary and put it in ~/sshcli folder
- - Adds exec permission to the executable
- - Adds a new line to your ~/.zshrc file to add ~/sshcli to the PATH variable 
+curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/installation_scripts/install_sshcli_mac_arm.sh | zsh
 ```
+
+- MacOS (Intel):
+```
+curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/installation_scripts/install_sshcli_mac_x86_64.sh | zsh
+```
+
+- Linux (arm):
+```
+curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/installation_scripts/install_sshcli_linux_arm.sh | zsh
+```
+
+- Linux (x86_64):
+```
+curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/installation_scripts/install_sshcli_linux_x86_64.sh | zsh
+```
+
+  - This script does below changes on your machine:
+    - Creates a new folder: ~/sshcli
+    - Downloads the sshcli binary and put it in ~/sshcli folder
+    - Adds exec permission to the executable
+    - Adds a new line to your ~/.zshrc file to add ~/sshcli to the PATH variable 
+
 - Or you can download the latest binary for your OS/CPU architecture from the releases section manually.
   + Starting with release 20250808.0631, the new variant uses SQLite (no CGO required) to store passwords, encryption keys, notes and folder information.  
   + If you're coming from a pre-SQLite release, the app will automatically migrate your passwords, encryption key, and folder structure to the sshcli.db file during the very first execution.
