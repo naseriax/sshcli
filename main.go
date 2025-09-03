@@ -1129,6 +1129,10 @@ func cleanTheString(s, mode string) string {
 	s = strings.ReplaceAll(s, yellow, "")
 	s = strings.ReplaceAll(s, reset, "")
 
+	if strings.ToLower(mode) == "keyboard" {
+		s = s[4:]
+	}
+
 	// remove icons
 	if strings.ToLower(mode) == "all" {
 		s = strings.TrimPrefix(s, sshIcon+" ")
@@ -1430,29 +1434,12 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 
 	switch chosen_type {
 	case "ssh":
-
-		// promptCommand := promptui.Select{
-		// 	Label: "Select Command",
-		// 	Size:  35,
-		// 	Items: []string{"SSH", "SFTP (os native)", "SFTP (text UI)", "Ping", "TCPing", "ssh-copy-id", "Duplicate/Edit Profile", "Set Password", "Set http proxy", "Set Folder", "notes", "Reveal Password", "Remove http proxy", "Remove Profile"},
-		// 	Templates: &promptui.SelectTemplates{
-		// 		Label:    "{{ . }}?",
-		// 		Active:   "\U0001F534 {{ . | cyan }}",
-		// 		Inactive: "  {{ . | cyan }}",
-		// 		Selected: "\U0001F7E2 {{ . | red | cyan }}",
-		// 	},
-		// }
-
-		// _, command, err := promptCommand.Run()
-		// if err != nil {
-		// 	handleExitSignal(err)
-		// 	return fmt.Errorf("error running command prompt: %w", err)
-		// }
-
 		command, err := b_ui()
 		if err != nil {
 			return err
 		}
+
+		command = cleanTheString(command, "keyboard")
 
 		if strings.EqualFold(command, "Set Folder") {
 			moveToFolder(hostName)
