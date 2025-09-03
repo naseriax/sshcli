@@ -30,16 +30,26 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# Give the file execute permissions
-echo "Setting executable permissions..."
-chmod +x "$FINAL_PATH"
 
 echo "Download complete! The executable has been saved to:"
 echo "$FINAL_PATH"
 
+# Give the file execute permissions
+echo "Setting executable permissions..."
+chmod +x "$FINAL_PATH"
+
 echo "Adding sshcli to PATH"
 echo "# Below line was added by sshcli" >> ~/.zshrc
 echo 'export PATH="$HOME/sshcli:$PATH"' >> ~/.zshrc
-source ~/.zshrc
+echo ""
+echo "🎉 Success! sshcli has been installed."
+echo ""
+echo "To finish the setup, please do one of the following:"
+echo "1) Open a new terminal window."
+echo "   OR"
+echo "2) Run the following command in your current terminal:"
+echo "   source ~/.zshrc"
+echo ""
+
 
 exit 0
