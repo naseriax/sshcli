@@ -52,12 +52,12 @@ Use **sshcli -sql** to access the sql client engine of the sshcli.db to check th
 ## Usage
 - Add or update a profile in the ~/.ssh/config file:
 ```
- # ./sshcli --action add --host t001 --hostname 10.10.10.10 --key '~/.ssh/id_rsa' --username root  --port 22 --askpass
+ # sshcli --action add --host t001 --hostname 10.10.10.10 --key '~/.ssh/id_rsa' --username root  --port 22 --askpass
  Enter Password:
 ```
 - Remove an existing SSH profile from the ~/.ssh/config file:
 ```
-# ./sshcli --action remove --host t001
+# sshcli --action remove --host t001
 ```
 - For more options, use the help command:
 ```
@@ -97,7 +97,8 @@ Usage of sshcli:
 ```
 
 ### Significant Features
-
+- Ability to store a note per ssh profile, encrypted and stored in the sqlite database
+- `ssh` tunnel setup (-L)
 - `ssh` over `http_proxy` support
 - `sftp` TUI
 - Zero-Touch Encrypted SSH Password Database (using `sshpass`)
