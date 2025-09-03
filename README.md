@@ -41,11 +41,11 @@ To compile the code, you must have Golang installed on your system.
 - Run `go mod tidy` to download the required modules.
 - Compile:
   - Running on Windows x86_64, compiling for Windows x86_64:
-    `$env:GOOS="windows"; $env:GOARCH="amd64"; $env:CGO_ENABLED="0"; go build .`
+      + `$env:GOOS="windows"; $env:GOARCH="amd64"; $env:CGO_ENABLED="0"; go build .`
   - Running on Apple Silicon Mac, compiling for Apple Silicon Mac:
-    `env GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "-X main.CompileTime=date -u +.%Y%m%d.%H%M%S"`
+      + `env GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "-X main.CompileTime=date -u +.%Y%m%d.%H%M%S"`
   - Running on Apple Silicon Mac, compiling for Linux x86_64:
-    `env GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-X main.CompileTime=date -u +.%Y%m%d.%H%M%S"`
+      + `env GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-X main.CompileTime=date -u +.%Y%m%d.%H%M%S"`
   - Run the tool by calling the binary.
 
 ## Usage
