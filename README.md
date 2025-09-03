@@ -16,6 +16,12 @@ sshcli is a command-line interface tool that uses the ~/.ssh/config file as a pr
 Run this command on terminal:
 
 curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/install_sshcli.sh | zsh
+
+This script does below changes on your machine:
+ - Creates a new folder: ~/sshcli
+ - Downloads the sshcli binary and put it in ~/sshcli folder
+ - Adds exec permission to the executable
+ - Adds a new line to your ~/.zshrc file to add ~/sshcli to the PATH variable 
 ```
 - Or you can download the latest binary for your OS/CPU architecture from the releases section manually.
   + Starting with release 20250808.0631, the new variant uses SQLite (no CGO required) to store passwords, encryption keys, notes and folder information.  
