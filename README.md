@@ -137,7 +137,7 @@ Usage of sshcli:
 - Uses the default `~/.ssh/config` file as the profile database
 - Supports console connection profiles (MacOS only, uses cu tool)
 - Flat or foldered structure.
-- `ping` and `tcping` integration (requires `ping` and `tcping` must be available in the cli)
+- `ping` and `tcping` integration (`ping` and `tcping` must be available in the cli)
 
 ### Recommended Usage
 - Install the **Alacritty terminal** (works on other terminal emulators as well, but Alacritty provides the best experience).
