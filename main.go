@@ -1443,7 +1443,7 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 
 		if strings.EqualFold(command, "Set Folder") {
 			moveToFolder(hostName)
-		} else if strings.EqualFold(command, "notes") {
+		} else if strings.EqualFold(command, "Notes") {
 			if err := updateNotesAndPushToDb(hostName); err != nil {
 				log.Println(err)
 			}
@@ -1464,15 +1464,19 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 					return err
 				}
 			}
-
-			if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
-				err := runSudoCommand(password)
-				if err != nil {
-					fmt.Printf("Error executing sudo command: %v\n", err)
-				}
-				fmt.Println("Password for", hostName, "has been copied to the clipboard.")
+			if len(password) == 0 {
+				fmt.Println("No password found.")
 			} else {
-				fmt.Println("Password for", hostName, ":", password)
+
+				if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
+					err := runSudoCommand(password)
+					if err != nil {
+						fmt.Printf("Error executing sudo command: %v\n", err)
+					}
+					fmt.Println("Password for", hostName, "has been copied to the clipboard.")
+				} else {
+					fmt.Println("Password for", hostName, ":", password)
+				}
 			}
 
 		} else if strings.EqualFold(command, "Set http proxy") {

@@ -42,25 +42,25 @@ func (m ssh_model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Keyboard shortcuts
 		case "s":
-			m.choice = fmt.Sprintf("%s(s)%s SSH", yellow, reset)
+			m.choice = fmt.Sprintf("%s(s)%s ssh", yellow, reset)
 			return m, tea.Quit
 		case "n":
-			m.choice = fmt.Sprintf("%s(n)%s notes", yellow, reset)
+			m.choice = fmt.Sprintf("%s(n)%s Notes", yellow, reset)
 			return m, tea.Quit
 		case "p":
 			m.choice = fmt.Sprintf("%s(p)%s Set Password", yellow, reset)
 			return m, tea.Quit
 		case "t":
-			m.choice = fmt.Sprintf("%s(t)%s SFTP (text UI)", yellow, reset)
+			m.choice = fmt.Sprintf("%s(t)%s sftp (text UI)", yellow, reset)
 			return m, tea.Quit
 		case "o":
-			m.choice = fmt.Sprintf("%s(o)%s SFTP (os native)", yellow, reset)
+			m.choice = fmt.Sprintf("%s(o)%s sftp (os native)", yellow, reset)
 			return m, tea.Quit
 		case "i":
-			m.choice = fmt.Sprintf("%s(i)%s Ping", yellow, reset)
+			m.choice = fmt.Sprintf("%s(i)%s ping", yellow, reset)
 			return m, tea.Quit
 		case "c":
-			m.choice = fmt.Sprintf("%s(c)%s TCPing", yellow, reset)
+			m.choice = fmt.Sprintf("%s(c)%s tcping", yellow, reset)
 			return m, tea.Quit
 		case "d":
 			m.choice = fmt.Sprintf("%s(d)%s Duplicate/Edit Profile", yellow, reset)
@@ -107,15 +107,15 @@ func (m ssh_model) View() string {
 		// Highlight based on shortcuts
 		var color string
 		switch choice {
-		case fmt.Sprintf("%s(s)%s SSH", yellow, reset):
+		case fmt.Sprintf("%s(s)%s ssh", yellow, reset):
 			color = green
-		case fmt.Sprintf("%s(n)%s notes", yellow, reset):
+		case fmt.Sprintf("%s(n)%s Notes", yellow, reset):
 			color = blue
 		case fmt.Sprintf("%s(p)%s Set Password", yellow, reset):
 			color = red
-		case fmt.Sprintf("%s(t)%s SFTP (text UI)", yellow, reset):
+		case fmt.Sprintf("%s(t)%s sftp (text UI)", yellow, reset):
 			color = magenta
-		case fmt.Sprintf("%s(o)%s SFTP (os native)", yellow, reset):
+		case fmt.Sprintf("%s(o)%s sftp (os native)", yellow, reset):
 			color = orange
 		default:
 			color = reset
@@ -132,18 +132,18 @@ func (m ssh_model) View() string {
 func runBubbleTeaMenu() (string, error) {
 	p := tea.NewProgram(ssh_model{
 		choices: []string{
-			fmt.Sprintf("%s(s)%s SSH", yellow, reset),
-			fmt.Sprintf("%s(o)%s SFTP (os native)", yellow, reset),
-			fmt.Sprintf("%s(t)%s SFTP (text UI)", yellow, reset),
-			fmt.Sprintf("%s(i)%s Ping", yellow, reset),
-			fmt.Sprintf("%s(c)%s TCPing", yellow, reset),
+			fmt.Sprintf("%s(s)%s ssh", yellow, reset),
+			fmt.Sprintf("%s(o)%s sftp (os native)", yellow, reset),
+			fmt.Sprintf("%s(t)%s sftp (text UI)", yellow, reset),
+			fmt.Sprintf("%s(i)%s ping", yellow, reset),
+			fmt.Sprintf("%s(c)%s tcping", yellow, reset),
 			fmt.Sprintf("%s(k)%s ssh-copy-id", yellow, reset),
 			fmt.Sprintf("%s(d)%s Duplicate/Edit Profile", yellow, reset),
 			fmt.Sprintf("%s(p)%s Set Password", yellow, reset),
 			fmt.Sprintf("%s(h)%s Set http proxy", yellow, reset),
 			fmt.Sprintf("%s(x)%s Set SSH Tunnel", yellow, reset),
 			fmt.Sprintf("%s(f)%s Set Folder", yellow, reset),
-			fmt.Sprintf("%s(n)%s notes", yellow, reset),
+			fmt.Sprintf("%s(n)%s Notes", yellow, reset),
 			fmt.Sprintf("%s(r)%s Reveal Password", yellow, reset),
 			fmt.Sprintf("%s(X)%s Remove SSH Tunnel", yellow, reset),
 			fmt.Sprintf("%s(H)%s Remove http proxy", yellow, reset),
