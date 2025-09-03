@@ -4,11 +4,26 @@ sshcli is a command-line interface tool that uses the ~/.ssh/config file as a pr
 ## Requirements to Run
  - The **ssh** and **sftp** commands must be available in your system's PATH environment variable.
  - The **sshpass** tool can be installed optionally if password authentication is needed.
- - The ~~passwords.json~~ sshcli.db file acts as a password database since the ssh config file doesn't support storing passwords. ~~You can add your clear-text passwords to the file, and the tool will encrypt them after the first execution (based on the isEncrypted value).~~
+ - The sshcli.db file acts as an encrypted password database since the ssh config file doesn't support storing passwords.
  - ssh passwords can be added to new or existing profiles using the --host VM10 --askpass parameters, or by choosing "Set Password" in the profile submenu.
 
 ## Supported Operating Systems:
   - In theory, all operating systems and cpu architecture are supported, but the testing is done only on MacOS.
+
+## Installation
+- MacOS (arm):
+```
+Run this command on terminal:
+
+curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/install_sshcli.sh | zsh
+```
+- Or you can download the latest binary for your OS/CPU architecture from the releases section manually.
+  + Starting with release 20250808.0631, the new variant uses SQLite (no CGO required) to store passwords, encryption keys, notes and folder information.  
+  + If you're coming from a pre-SQLite release, the app will automatically migrate your passwords, encryption key, and folder structure to the sshcli.db file during the very first execution.
+
+## Hints
+Use / to bring up the search field and find a host from the list more easily.
+Use **sshcli -sql** to access the sql client engine of the sshcli.db to check the content or do some fun queries.
 
 ## Compile (Optional)
 #### Requirements
@@ -32,22 +47,6 @@ To compile the code, you must have Golang installed on your system.
   - Running on Apple Silicon Mac, compiling for Linux x86_64:
     `env GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-X main.CompileTime=date -u +.%Y%m%d.%H%M%S"`
   - Run the tool by calling the binary.
-
-## Installation
-- MacOS (arm):
-```
-Run this command on terminal:
-
-curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/install_sshcli.sh | zsh
-```
-- Or you can download the latest binary for your OS/CPU architecture from the releases section manually.
-  + Starting with release 20250808.0631, the new variant uses SQLite (no CGO required) to store passwords, encryption keys, and folder information.  
-  + If you're coming from a pre-SQLite release, the app will automatically migrate your passwords, encryption key, and folder structure to the sshcli.db file during the very first execution.
-  + Console profiles are still managed using a JSON file but will follow suit soon.
-
-## Hints
-Use / to bring up the search field and find a host from the list more easily.
-Use **sshcli -sql** to access the sql client engine of the sshcli.db to check the content or do some fun queries.
 
 ## Usage
 - Add or update a profile in the ~/.ssh/config file:
@@ -101,11 +100,11 @@ Usage of sshcli:
 - `ssh` tunnel setup (-L)
 - `ssh` over `http_proxy` support
 - `sftp` TUI
-- Zero-Touch Encrypted SSH Password Database (using `sshpass`)
+- Zero-Touch encrypted SSH password database (using `sshpass`)
 - Uses the default `~/.ssh/config` file as the profile database
-- Supports console connection profiles
-- Flat or Folder structure, where the folder structure is saved in a separate JSON file. (Changes to flat if the file is removed)
-- `ping` and `tcping` integration (requires `ping` and `tcping` to be available in the cli)
+- Supports console connection profiles (MacOS only, uses cu tool)
+- Flat or foldered structure.
+- `ping` and `tcping` integration (requires `ping` and `tcping` must be available in the cli)
 
 ### Recommended Usage
 - Install the **Alacritty terminal** (works on other terminal emulators as well, but Alacritty provides the best experience).

@@ -51,5 +51,4 @@ echo "2) Run the following command in your current terminal:"
 echo "   source ~/.zshrc"
 echo ""
 
-
 exit 0
