@@ -11,12 +11,12 @@ sshcli is a command-line interface tool that uses the ~/.ssh/config file as a pr
   - In theory, all operating systems and cpu architecture are supported, but the testing is done only on MacOS.
 
 ## Installation
-- MacOS (Apple Silicon):
+- MacOS (Apple Silicon - arm):
 ```
 curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/installation_scripts/install_sshcli_mac_arm.sh | zsh
 ```
 
-- MacOS (Intel):
+- MacOS (Intel - x86_64):
 ```
 curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/installation_scripts/install_sshcli_mac_x86_64.sh | zsh
 ```
@@ -30,6 +30,17 @@ curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/ins
 ```
 curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/installation_scripts/install_sshcli_linux_x86_64.sh | bash
 ```
+
+- Windows (arm):
+```
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/installation_scripts/install_sshcli_windows_arm.ps1" -UseBasicParsing | Invoke-Expression
+```
+
+- Windows (x86_64):
+```
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/installation_scripts/install_sshcli_windows_x86_64.ps1" -UseBasicParsing | Invoke-Expression
+```
+
 
   - This script does below changes on your machine:
     - Creates a new folder: ~/sshcli
