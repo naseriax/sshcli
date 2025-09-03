@@ -35,9 +35,11 @@ To compile the code, you must have Golang installed on your system.
 
 ## Installation
 - MacOS (arm):
+'''
 Run this command on terminal:
-`curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/install_sshcli.sh | zsh`
 
+`curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/install_sshcli.sh | zsh`
+```
 - Or you can download the latest binary for your OS/CPU architecture from the releases section manually.
   + Starting with release 20250808.0631, the new variant uses SQLite (no CGO required) to store passwords, encryption keys, and folder information.  
   + If you're coming from a pre-SQLite release, the app will automatically migrate your passwords, encryption key, and folder structure to the sshcli.db file during the very first execution.
