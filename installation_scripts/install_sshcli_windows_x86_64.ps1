@@ -51,4 +51,3 @@ Write-Host "1) Open a new PowerShell or Command Prompt window."
 Write-Host "   OR"
 Write-Host "2) Your current session has been updated. You can start using 'sshcli.exe' now."
 Write-Host ""
-exit 0
