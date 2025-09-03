@@ -11,7 +11,7 @@ sshcli is a command-line interface tool that uses the ~/.ssh/config file as a pr
   - In theory, all operating systems and cpu architecture are supported, but the testing is done only on MacOS.
 
 ## Installation
-- MacOS (arm):
+- MacOS (Apple Silicon):
 ```
 Run this command on terminal:
 
