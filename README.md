@@ -23,12 +23,12 @@ curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/ins
 
 - Linux (arm):
 ```
-curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/installation_scripts/install_sshcli_linux_arm.sh | zsh
+curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/installation_scripts/install_sshcli_linux_arm.sh | bash
 ```
 
 - Linux (x86_64):
 ```
-curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/installation_scripts/install_sshcli_linux_x86_64.sh | zsh
+curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/installation_scripts/install_sshcli_linux_x86_64.sh | bash
 ```
 
   - This script does below changes on your machine:
