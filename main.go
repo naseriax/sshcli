@@ -48,6 +48,7 @@ const (
 	hasProxy    = "📡"
 	hasTun      = "🚇"
 	hasNote     = "🖍️"
+	divider     = ""
 )
 
 var CompileTime = ""
@@ -1818,13 +1819,13 @@ func isThereAnyNote(host string) bool {
 }
 
 func isTherePass(host string) bool {
-	var currentNotes string
+	var currentPass string
 
-	query := "SELECT password FROM sshprofiles WHERE host = ? AND note IS NOT NULL"
+	query := "SELECT password FROM sshprofiles WHERE host = ? AND password IS NOT NULL"
 	row := db.QueryRow(query, host)
 
-	err := row.Scan(&currentNotes)
-	if err == nil && len(currentNotes) > 0 {
+	err := row.Scan(&currentPass)
+	if err == nil && len(currentPass) > 0 {
 		return true
 	}
 	return false
@@ -1914,7 +1915,7 @@ func getItems(hosts []SSHConfig, isSubmenu bool) []string {
 		if len(hosts[i].ForwardSocket) > 0 {
 
 			if hasAttrib {
-				item += "|"
+				item += divider
 			}
 			item += hasTun
 			hasAttrib = true
@@ -1923,19 +1924,19 @@ func getItems(hosts []SSHConfig, isSubmenu bool) []string {
 		if isThereAnyNote(hosts[i].Host) {
 
 			if hasAttrib {
-				item += "|"
+				item += divider
 			}
 			item += hasNote
 			hasAttrib = true
 		}
 
 		if isTherePass(hosts[i].Host) {
-
 			if hasAttrib {
-				item += "|"
+				item += divider
 			}
 			item += hasPassword
 			hasAttrib = true
+
 		}
 
 		connectionItemsNewFormat = append(connectionItemsNewFormat, item)

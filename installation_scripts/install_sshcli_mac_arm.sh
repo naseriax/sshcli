@@ -1,4 +1,4 @@
-GITLAB_URL="https://github.com/naseriax/sshcli/releases/download/20250905.0735/sshcli_mac_arm64"
+GITLAB_URL="https://github.com/naseriax/sshcli/releases/download/20250905.0806/sshcli_mac_arm64"
 DEST_DIR="$HOME/sshcli"
 NEW_NAME="sshcli"
 echo "Starting download of the sshcli executable for macOS (ARM64)..."
