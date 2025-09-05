@@ -29,6 +29,7 @@ import (
 	"golang.org/x/term"
 )
 
+// ############# Cosmetics ###############
 const (
 	red         = "\033[31m"
 	green       = "\033[32m"
@@ -39,15 +40,20 @@ const (
 	magenta     = "\033[35m"
 	cyan        = "\033[36m"
 	orange      = "\033[38;2;255;165;0m"
+	BOLD        = "\033[1m"
+	consoleIcon = "📟"
+	folderIcon  = "🗂️"
+	sshIcon     = "🌐"
+	hasPassword = "🔑"
+	hasProxy    = "📡"
+	hasTun      = "🚇"
+	hasNote     = "🖍️"
 )
 
 var CompileTime = ""
 var passAuthSupported = true
 var key []byte
 var db *sql.DB
-var folderIcon = "🗂️"
-var sshIcon = "🌐"
-var consoleIcon = "📟"
 
 // SSHConfig represents the configuration for an SSH host entry
 type SSHConfig struct {
@@ -1128,6 +1134,7 @@ func cleanTheString(s, mode string) string {
 	s = strings.ReplaceAll(s, red, "")
 	s = strings.ReplaceAll(s, yellow, "")
 	s = strings.ReplaceAll(s, reset, "")
+	s = strings.ReplaceAll(s, BOLD, "")
 
 	if strings.ToLower(mode) == "keyboard" {
 		s = s[4:]
@@ -1810,6 +1817,19 @@ func isThereAnyNote(host string) bool {
 	return false
 }
 
+func isTherePass(host string) bool {
+	var currentNotes string
+
+	query := "SELECT password FROM sshprofiles WHERE host = ? AND note IS NOT NULL"
+	row := db.QueryRow(query, host)
+
+	err := row.Scan(&currentNotes)
+	if err == nil && len(currentNotes) > 0 {
+		return true
+	}
+	return false
+}
+
 func getItems(hosts []SSHConfig, isSubmenu bool) []string {
 
 	items := make([]string, 0)
@@ -1852,6 +1872,9 @@ func getItems(hosts []SSHConfig, isSubmenu bool) []string {
 	}
 
 	connectionItems := make([]string, 0)
+	connectionItemsNewFormat := make([]string, 0)
+
+	maxRowLength := 1
 
 	for _, host := range hosts {
 
@@ -1872,26 +1895,57 @@ func getItems(hosts []SSHConfig, isSubmenu bool) []string {
 		if len(host.Port) > 0 && host.Port != "22" {
 			item += fmt.Sprintf(" -p %v", host.Port)
 		}
-
-		if len(host.Proxy) > 0 {
-			item += " - 📡"
-		}
-
-		if len(host.ForwardSocket) > 0 {
-			item += " - 🚇"
-		}
-
-		if isThereAnyNote(host.Host) {
-			item += " - 🖍️"
+		if len(item) > maxRowLength {
+			maxRowLength = len(item)
 		}
 
 		connectionItems = append(connectionItems, item)
 	}
-	sort.Strings(connectionItems)
-	items = append(items, connectionItems...)
+
+	for i, item := range connectionItems {
+		hasAttrib := false
+		item += fmt.Sprintf(" %s ", strings.Repeat(" ", maxRowLength-len(item)))
+
+		if len(hosts[i].Proxy) > 0 {
+			item += hasProxy
+			hasAttrib = true
+		}
+
+		if len(hosts[i].ForwardSocket) > 0 {
+
+			if hasAttrib {
+				item += "|"
+			}
+			item += hasTun
+			hasAttrib = true
+		}
+
+		if isThereAnyNote(hosts[i].Host) {
+
+			if hasAttrib {
+				item += "|"
+			}
+			item += hasNote
+			hasAttrib = true
+		}
+
+		if isTherePass(hosts[i].Host) {
+
+			if hasAttrib {
+				item += "|"
+			}
+			item += hasPassword
+			hasAttrib = true
+		}
+
+		connectionItemsNewFormat = append(connectionItemsNewFormat, item)
+	}
+
+	sort.Strings(connectionItemsNewFormat)
+	items = append(items, connectionItemsNewFormat...)
 
 	consoleItems := make([]string, 0)
-	if runtime.GOOS == "darwin" && checkShellCommands("cu") == nil && !isSubmenu {
+	if checkShellCommands("cu") == nil && !isSubmenu {
 
 		consoleConfigs, err := readAllConsoleProfiles()
 		if err != nil {
