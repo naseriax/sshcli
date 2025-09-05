@@ -49,6 +49,11 @@ const (
 	hasTun      = "🚇"
 	hasNote     = "🖍️"
 	divider     = ""
+	help_text   = `Use the arrow keys to navigate: ↓ ↑ → ←  and / toggles search
+	🔑: password"
+	📡: http proxy
+	🚇: ssh tunnel
+	🖍️: note`
 )
 
 var CompileTime = ""
@@ -1176,6 +1181,7 @@ func ExecTheUI(configPath string) error {
 			Active:   "\U0001F534 {{ . | cyan }}",
 			Inactive: "  {{ . | cyan }}",
 			Selected: "\U0001F7E2 {{ . | red | cyan }}",
+			Help:     help_text,
 		},
 	}
 
@@ -1244,6 +1250,7 @@ func navigateToNext(chosen string, hosts []SSHConfig, configPath string) error {
 				Active:   "\U0001F534 {{ . | cyan }}",
 				Inactive: "  {{ . | cyan }}",
 				Selected: "\U0001F7E2 {{ . | red | cyan }}",
+				Help:     `Use the arrow keys to navigate: ↓ ↑ → ← and / toggles search | Press 'q' to quit S:dd`,
 			},
 		}
 
@@ -1411,7 +1418,8 @@ func findAvailablePort() (int, error) {
 
 	// Get the address of the listener and return the port.
 	port := listener.Addr().(*net.TCPAddr).Port
-	fmt.Println("Found available port:", port)
+	fmt.Printf("\n #### Found available local port: %s%s%d%s. Use %s%slocalhost:%d%s to access the remote machine from your local machine #### \n", BOLD, blue, port, reset, BOLD, blue, port, reset)
+	fmt.Printf(" #### Make sure you keep this session open while connected to the remote machine                                  ####\n\n")
 	return port, nil
 }
 
@@ -1489,8 +1497,6 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 
 		} else if strings.EqualFold(command, "Set http proxy") {
 			AddProxyToProfile(hostName, configPath)
-		} else if strings.EqualFold(command, "Set SSH Tunnel") {
-			AddForwardSocketToProfile(hostName, configPath)
 		} else if strings.EqualFold(command, "Remove http proxy") {
 			DeleteProxyFromProfile(hostName, configPath)
 		} else if strings.EqualFold(command, "Remove SSH Tunnel") {
@@ -1641,6 +1647,12 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 
 			//
 		} else {
+			if strings.EqualFold(command, "set ssh tunnel") {
+				if err := AddForwardSocketToProfile(hostName, configPath); err != nil {
+					return fmt.Errorf("failed to add ForwardSocket:, %w", err)
+				}
+				command = "ssh"
+			}
 			if strings.EqualFold(command, "sftp (os native)") {
 				command = "sftp"
 			}
