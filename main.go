@@ -1910,7 +1910,7 @@ func getItems(hosts []SSHConfig, isSubmenu bool) []string {
 		sort.Strings(items)
 	}
 
-	connectionItems := make([]string, 0)
+	connectionItems := map[string]SSHConfig{}
 	connectionItemsNewFormat := make([]string, 0)
 
 	maxRowLength := 1
@@ -1937,44 +1937,27 @@ func getItems(hosts []SSHConfig, isSubmenu bool) []string {
 		if len(item) > maxRowLength {
 			maxRowLength = len(item)
 		}
+		connectionItems[item] = host
 
-		connectionItems = append(connectionItems, item)
 	}
 
-	for i, item := range connectionItems {
-		hasAttrib := false
+	for item, host := range connectionItems {
 		item += fmt.Sprintf(" %s ", strings.Repeat(" ", maxRowLength-len(item)))
 
-		if len(hosts[i].Proxy) > 0 {
+		if len(host.Proxy) > 0 {
 			item += hasProxy
-			hasAttrib = true
 		}
 
-		if len(hosts[i].ForwardSocket) > 0 {
-
-			if hasAttrib {
-				item += divider
-			}
+		if len(host.ForwardSocket) > 0 {
 			item += hasTun
-			hasAttrib = true
 		}
 
-		if isThereAnyNote(hosts[i].Host) {
-
-			if hasAttrib {
-				item += divider
-			}
+		if isThereAnyNote(host.Host) {
 			item += hasNote
-			hasAttrib = true
 		}
 
-		if isTherePass(hosts[i].Host) {
-			if hasAttrib {
-				item += divider
-			}
+		if isTherePass(host.Host) {
 			item += hasPassword
-			hasAttrib = true
-
 		}
 
 		connectionItemsNewFormat = append(connectionItemsNewFormat, item)
@@ -2167,7 +2150,6 @@ func AddProxyToProfile(hostName, configPath string) error {
 
 	cleanProxy, err := IsProxyValid(proxy)
 	if err != nil {
-		fmt.Println("Proxy string was not formatted properly!")
 		return err
 	}
 
@@ -2175,14 +2157,12 @@ func AddProxyToProfile(hostName, configPath string) error {
 
 	h, err := extractHost(hostName, configPath)
 	if err != nil {
-		fmt.Println(err)
 		return fmt.Errorf("error extracting host: %w", err)
 	}
 
 	h.Proxy = proxy
 
 	if err := updateSSHConfig(configPath, h); err != nil {
-		fmt.Println("Error adding/updating profile:", err)
 		return fmt.Errorf("error adding/updating profile: %w", err)
 	}
 	return nil
@@ -2222,21 +2202,18 @@ func AddForwardSocketToProfile(hostName, configPath string) error {
 	}
 	cleanTargetSocket, err := IsProxyValid(target_socket)
 	if err != nil {
-		fmt.Println("Socket address was not formatted properly!")
 		return err
 	}
 
 	forwardSocket := fmt.Sprintf("%d %s", localport, cleanTargetSocket)
 	h, err := extractHost(hostName, configPath)
 	if err != nil {
-		fmt.Println(err)
 		return fmt.Errorf("error extracting host: %w", err)
 	}
 
 	h.ForwardSocket = append(h.ForwardSocket, forwardSocket)
 
 	if err := updateSSHConfig(configPath, h); err != nil {
-		fmt.Println("Error adding/updating profile:", err)
 		return fmt.Errorf("error adding/updating profile: %w", err)
 	}
 	return nil
@@ -2246,14 +2223,12 @@ func DeleteProxyFromProfile(hostName, configPath string) error {
 
 	h, err := extractHost(hostName, configPath)
 	if err != nil {
-		fmt.Println(err)
 		return fmt.Errorf("error extracting host: %w", err)
 	}
 
 	h.Proxy = ""
 
 	if err := updateSSHConfig(configPath, h); err != nil {
-		fmt.Println("Error adding/updating profile:", err)
 		return fmt.Errorf("error adding/updating profile: %w", err)
 	}
 
@@ -2264,7 +2239,6 @@ func DeleteFordwardSocketFromProfile(hostName, configPath string) error {
 
 	h, err := extractHost(hostName, configPath)
 	if err != nil {
-		fmt.Println(err)
 		return fmt.Errorf("error extracting host: %w", err)
 	}
 
@@ -2322,12 +2296,10 @@ func moveToFolder(hostName string) error {
 		}
 
 		if len(name) == 0 {
-			fmt.Println("Empty name? really? Doing nothing!")
 			return fmt.Errorf("invalid folder name")
 		}
 
 		if slices.Contains(FolderList, name) {
-			fmt.Println("Folder with name", name, "already exists. Doing nothing!")
 			return fmt.Errorf("folder with name %s already exists", name)
 		}
 
@@ -2477,14 +2449,12 @@ func removeConsoleConfig(h string) error {
 
 	stmt, err := tx.Prepare("DELETE FROM console_profiles WHERE host = ?;")
 	if err != nil {
-		fmt.Printf("failed to prepare the db for console profile deletion:%v\n", err)
 		return err
 	}
 	defer stmt.Close()
 
 	_, err = stmt.Exec(h)
 	if err != nil {
-		fmt.Printf("failed to delete the console profile for the host %v: %v\n", h, err)
 		return err
 	}
 
@@ -2624,7 +2594,6 @@ func editConsoleProfile(config ConsoleConfig) error {
 		if len(newHost) != 0 {
 			err = json.Unmarshal(newHost, &c)
 			if err != nil {
-				fmt.Printf("error unmarshalling JSON for consoleConfigs: %v\n", err)
 				return fmt.Errorf("error unmarshalling JSON for consoleConfigs: %v", err)
 			}
 		}
@@ -2693,7 +2662,6 @@ func main() {
 	// Here we initialize the database
 	d := filepath.Join(homeDir, ".ssh")
 	if _, err := os.Stat(d); err != nil {
-		fmt.Printf(" [!] %sCould not find/access the ssh config file path: %s. Creating it...\n%s", green, d, reset)
 		err := os.Mkdir(d, 0755)
 		if err != nil {
 			fmt.Printf(" [!] %sError creating directory '%s': %v\n%s", red, d, err, reset)
