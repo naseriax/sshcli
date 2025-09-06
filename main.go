@@ -49,11 +49,6 @@ const (
 	hasTun      = "🚇"
 	hasNote     = "🖍️"
 	divider     = ""
-	help_text   = `Use the arrow keys to navigate: ↓ ↑ → ←  and / toggles search
-	🔑: password"
-	📡: http proxy
-	🚇: ssh tunnel
-	🖍️: note`
 )
 
 var CompileTime = ""
@@ -742,7 +737,7 @@ func updateSSHConfig(configPath string, config SSHConfig) error {
 			}
 
 			// Skip forward lines if we have new forward socket config
-			if len(config.ForwardSocket) > 0 && (strings.HasPrefix(trimmedLine, "LocalForward") || strings.HasPrefix(trimmedLine, "RemoteForward") || strings.HasPrefix(trimmedLine, "DynamicForward")) {
+			if len(config.ForwardSocket) == 0 && (strings.HasPrefix(trimmedLine, "LocalForward") || strings.HasPrefix(trimmedLine, "RemoteForward") || strings.HasPrefix(trimmedLine, "DynamicForward")) {
 				continue
 			}
 
@@ -1186,7 +1181,6 @@ func ExecTheUI(configPath string) error {
 			Active:   "\U0001F534 {{ . | cyan }}",
 			Inactive: "  {{ . | cyan }}",
 			Selected: "\U0001F7E2 {{ . | red | cyan }}",
-			Help:     help_text,
 		},
 	}
 
@@ -1255,7 +1249,6 @@ func navigateToNext(chosen string, hosts []SSHConfig, configPath string) error {
 				Active:   "\U0001F534 {{ . | cyan }}",
 				Inactive: "  {{ . | cyan }}",
 				Selected: "\U0001F7E2 {{ . | red | cyan }}",
-				Help:     `Use the arrow keys to navigate: ↓ ↑ → ← and / toggles search | Press 'q' to quit S:dd`,
 			},
 		}
 
@@ -1424,7 +1417,6 @@ func findAvailablePort() (int, error) {
 	// Get the address of the listener and return the port.
 	port := listener.Addr().(*net.TCPAddr).Port
 	fmt.Printf("\n #### Found available local port: %s%s%d%s. Use %s%slocalhost:%d%s to access the remote machine from your local machine #### \n", BOLD, blue, port, reset, BOLD, blue, port, reset)
-	fmt.Printf(" #### Make sure you keep this session open while connected to the remote machine                                  ####\n\n")
 	return port, nil
 }
 
@@ -1472,7 +1464,9 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 				return err
 			}
 		} else if strings.EqualFold(command, "Remove Profile") {
-			deleteSSHProfile(hostName)
+			if err := deleteSSHProfile(hostName); err != nil {
+				return err
+			}
 
 		} else if strings.EqualFold(command, "Reveal Password") {
 			password, err := readAndDecryptPassFromDB(hostName)
@@ -1500,11 +1494,17 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 			}
 
 		} else if strings.EqualFold(command, "Set http proxy") {
-			AddProxyToProfile(hostName, configPath)
+			if err := AddProxyToProfile(hostName, configPath); err != nil {
+				return err
+			}
 		} else if strings.EqualFold(command, "Remove http proxy") {
-			DeleteProxyFromProfile(hostName, configPath)
+			if err := DeleteProxyFromProfile(hostName, configPath); err != nil {
+				return err
+			}
 		} else if strings.EqualFold(command, "Remove SSH Tunnel") {
-			DeleteFordwardSocketFromProfile(hostName, configPath)
+			if err := DeleteFordwardSocketFromProfile(hostName, configPath); err != nil {
+				return err
+			}
 		} else if strings.EqualFold(command, "Set Password") {
 			fmt.Print("\nEnter password: ")
 			bytePassword, err := term.ReadPassword(int(syscall.Stdin))
@@ -1655,7 +1655,30 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 				if err := AddForwardSocketToProfile(hostName, configPath); err != nil {
 					return fmt.Errorf("failed to add ForwardSocket:, %w", err)
 				}
-				command = "ssh"
+
+				tunnel_prompt := promptui.Select{
+					Label: "Open the tunnel right now",
+					Items: []string{"Yes", "No"},
+					Size:  3,
+					Templates: &promptui.SelectTemplates{
+						Label:    "{{ . }}?",
+						Active:   "\U0001F534 {{ . | cyan }}",
+						Inactive: "  {{ . | cyan }}",
+						Selected: "\U0001F7E2 {{ . | red | cyan }}",
+					},
+				}
+
+				_, userAction, err := tunnel_prompt.Run()
+				if err != nil {
+					return fmt.Errorf("error running submenu prompt: %w", err)
+				}
+
+				if userAction == "Yes" {
+					command = "ssh"
+				} else {
+					os.Exit(0)
+				}
+
 			}
 			if strings.EqualFold(command, "sftp (os native)") {
 				command = "sftp"
@@ -1673,7 +1696,7 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 
 			// Check if sshpass command is availble in the shell, needed for passsword authentication
 			if err := checkShellCommands("sshpass"); err != nil {
-				log.Println("sshpass is not installed, only key authentication is supported")
+				log.Println("sshpass is not installed!")
 				passAuthSupported = false
 
 			} else if passAuthSupported {
@@ -2169,7 +2192,7 @@ func AddForwardSocketToProfile(hostName, configPath string) error {
 	var localport int
 	var err error
 	var target_socket string
-	fmt.Print("Enter socket address (eg. <remotehost>:<remoteport> for random local port, or <localport>:<remotehost>:<remoteport>): ")
+	fmt.Print("\nEnter socket address (eg. <remotehost>:<remoteport> for random local port, or <localport>:<remotehost>:<remoteport>): ")
 	scanner := bufio.NewScanner(os.Stdin)
 	if scanner.Scan() {
 		target_socket = scanner.Text()
@@ -2248,7 +2271,6 @@ func DeleteFordwardSocketFromProfile(hostName, configPath string) error {
 	h.ForwardSocket = []string{}
 
 	if err := updateSSHConfig(configPath, h); err != nil {
-		fmt.Println("Error adding/updating profile:", err)
 		return fmt.Errorf("error adding/updating profile: %w", err)
 	}
 
