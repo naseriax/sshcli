@@ -68,7 +68,7 @@ type SSHConfig struct {
 	User          string
 	Port          string
 	Proxy         string
-	ForwardSocket string
+	ForwardSocket []string
 	IdentityFile  string
 	Password      string
 	Folder        string
@@ -95,7 +95,6 @@ type ConsoleConfig struct {
 type ConsoleConfigs []ConsoleConfig
 
 // ##################### LEGACY functions to be removed #####################
-
 // lagace password management
 var keyFile = "encryption.key"
 var dataFile = "passwords.json"
@@ -108,9 +107,7 @@ type HostPassword struct {
 }
 
 func readPassFile() error {
-
 	if _, err := os.Stat(dataFile); err != nil {
-
 		return fmt.Errorf(" [!] %sIt seems no password database file was created before%s", green, reset)
 	}
 
@@ -122,8 +119,7 @@ func readPassFile() error {
 	if len(data) != 0 {
 		err = json.Unmarshal(data, &hostPasswords)
 		if err != nil {
-			fmt.Printf("error unmarshalling JSON: %v\n", err)
-			os.Exit(1)
+			fmt.Printf("error unmarshalling JSON: %v. Passwords could not be recovered\n", err)
 		}
 	}
 
@@ -149,6 +145,7 @@ func loadCredentials() error {
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("error during credential rows iteration: %w", err)
 	}
+
 	if len(hostPasswords) == 0 {
 		err := readPassFile()
 		if err != nil {
@@ -164,7 +161,6 @@ func loadCredentials() error {
 }
 
 func PushPasswordsToDB() error {
-
 	tx, err := db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -552,13 +548,10 @@ func editProfile(profileName, configPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %v", err)
 	}
-
 	defer os.Remove(tmpfile.Name())
 
 	hosts := getHosts(configPath)
-
 	config := SSHConfig{}
-
 	for _, h := range hosts {
 		if h.Host == profileName {
 			config = h
@@ -566,20 +559,16 @@ func editProfile(profileName, configPath string) error {
 	}
 
 	profileContent := generateHostBlock(config)
-
 	writer := bufio.NewWriter(tmpfile)
 	for _, line := range profileContent {
 		fmt.Fprintln(writer, line)
 	}
-
 	if err := writer.Flush(); err != nil {
 		return fmt.Errorf("failed to write SSH config file: %w", err)
 	}
-
 	if err := tmpfile.Close(); err != nil {
 		return fmt.Errorf("failed to close temp file: %v", err)
 	}
-
 	fileInfoBefore, err := os.Stat(tmpfile.Name())
 	if err != nil {
 		return fmt.Errorf("failed to get file info: %v", err)
@@ -619,88 +608,85 @@ func editProfile(profileName, configPath string) error {
 		if len(newHosts) > 0 {
 			newHost = newHosts[0]
 		} else {
-			fmt.Println("the file has no valid ssh/sftp profile")
-			return fmt.Errorf("the file has no valid ssh/sftp profile")
+			return fmt.Errorf("the profile is not valid")
 		}
 
-		if newHost.Host != "" {
-			if newHost.Host == config.Host {
-				fmt.Printf("Modified profile for %s\n", profileName)
+		//newHost is the sshconfig after modifiation
+		//config is the sshconfig before modification
+
+		if newHost.Host == config.Host {
+			fmt.Printf("Modified profile for %s\n", profileName)
+		} else {
+			foldername, err := readFolderForHostFromDB(config.Host)
+			if err != nil {
+				if !strings.Contains(err.Error(), "host not found in folder query") {
+					return fmt.Errorf("failed to read folder for %v:%w", config.Host, err)
+				}
 			} else {
-				foldername, err := readFolderForHostFromDB(config.Host)
+				newHost.Folder = foldername
+				if err := updateProfileFolder(newHost.Host, newHost.Folder, ""); err != nil {
+					log.Printf("failed to push the new host's (%v) folder to the database:%v", newHost.Host, err.Error())
+				}
+			}
+
+			prompt := promptui.Select{
+				Label: "Select Option",
+				Items: []string{"Rename host", fmt.Sprintf("Save and duplicate as %s", newHost.Host)},
+				Size:  2,
+				Templates: &promptui.SelectTemplates{
+					Label:    "{{ . }}?",
+					Active:   "\U0001F534 {{ . | cyan }}",
+					Inactive: "  {{ . | cyan }}",
+					Selected: "\U0001F7E2 {{ . | red | cyan }}",
+				},
+			}
+
+			_, whatToDo, err := prompt.Run()
+			if err != nil {
+				handleExitSignal(err)
+				return fmt.Errorf("error selecting option: %w", err)
+			}
+			if whatToDo == "Rename host" {
+				oldPass, err := readAndDecryptPassFromDB(config.Host)
 				if err != nil {
-					if !strings.Contains(err.Error(), "host not found in folder query") {
-						return fmt.Errorf("failed to read folder for %v:%w", config.Host, err)
+					if !strings.Contains(err.Error(), "no password found") {
+						return fmt.Errorf("failed to read old password from DB: %w", err)
 					}
-				} else {
-					newHost.Folder = foldername
-					if err := updateProfileFolder(newHost.Host, newHost.Folder, ""); err != nil {
-						log.Printf("failed to push the new host's (%v) folder to the database:%v", newHost.Host, err.Error())
+				}
+				if len(oldPass) > 0 {
+					if err := encryptAndPushPassToDB(newHost.Host, oldPass); err != nil {
+						return fmt.Errorf("failed to push old password to DB: %w", err)
 					}
 				}
 
-				prompt := promptui.Select{
-					Label: "Select Option",
-					Items: []string{"Rename host", fmt.Sprintf("Save and duplicate as %s", newHost.Host)},
-					Size:  2,
-					Templates: &promptui.SelectTemplates{
-						Label:    "{{ . }}?",
-						Active:   "\U0001F534 {{ . | cyan }}",
-						Inactive: "  {{ . | cyan }}",
-						Selected: "\U0001F7E2 {{ . | red | cyan }}",
-					},
-				}
-
-				_, whatToDo, err := prompt.Run()
+				oldNote, err := readNoteforHost(config.Host)
 				if err != nil {
-					handleExitSignal(err)
-					return fmt.Errorf("error selecting option: %w", err)
+					return err
 				}
-				if whatToDo == "Rename host" {
-					oldPass, err := readAndDecryptPassFromDB(config.Host)
-					if err != nil {
-						if !strings.Contains(err.Error(), "no password found") {
-							return fmt.Errorf("failed to read old password from DB: %w", err)
-						}
-					}
-					if len(oldPass) > 0 {
-						if err := encryptAndPushPassToDB(newHost.Host, oldPass); err != nil {
-							return fmt.Errorf("failed to push old password to DB: %w", err)
-						}
-					}
-
-					oldNote, err := readNoteforHost(config.Host)
+				if len(oldNote) > 0 {
+					encryptedContent, err := encrypt([]byte(oldNote))
 					if err != nil {
 						return err
 					}
-					if len(oldNote) > 0 {
-						encryptedContent, err := encrypt([]byte(oldNote))
-						if err != nil {
-							return err
-						}
 
-						if err := WriteNoteToDb(encryptedContent, newHost.Host); err != nil {
-							return err
-						}
+					if err := WriteNoteToDb(encryptedContent, newHost.Host); err != nil {
+						return err
 					}
-
-					if err := deleteSSHProfile(config.Host); err != nil {
-						return fmt.Errorf("failed to delete old SSH profile: %w", err)
-					}
-
-					fmt.Printf("Modified the profile name from %s to %s\n", config.Host, newHost.Host)
-
-				} else {
-					fmt.Printf("A new profile:%s has been added\n", newHost.Host)
 				}
-			}
 
-			if err := updateSSHConfig(configPath, newHost); err != nil {
-				return fmt.Errorf("failed to update SSH config: %w", err)
-			}
+				if err := deleteSSHProfile(config.Host); err != nil {
+					return fmt.Errorf("failed to delete old SSH profile: %w", err)
+				}
 
-		} else {
-			fmt.Printf("The edited file is not valid, hence the profile %s was not modified.\n", profileName)
+				fmt.Printf("Modified the profile name from %s to %s\n", config.Host, newHost.Host)
+
+			} else {
+				fmt.Printf("A new profile:%s has been added\n", newHost.Host)
+			}
+		}
+
+		if err := updateSSHConfig(configPath, newHost); err != nil {
+			return fmt.Errorf("failed to update SSH config: %w", err)
 		}
 
 	} else {
@@ -710,10 +696,7 @@ func editProfile(profileName, configPath string) error {
 	return nil
 }
 
-// updateSSHConfig updates or adds an SSH host configuration in the ~/.ssh/config file
-// It modifies only the fields provided in the input config, preserving other existing fields
 func updateSSHConfig(configPath string, config SSHConfig) error {
-
 	// Read existing config file
 	content, err := os.ReadFile(configPath)
 	if err != nil && !os.IsNotExist(err) {
@@ -728,42 +711,57 @@ func updateSSHConfig(configPath string, config SSHConfig) error {
 
 	// Process existing config line by line
 	for i, line := range lines {
-
 		trimmedLine := strings.TrimSpace(line)
+
+		// Check for Host directive
 		if strings.HasPrefix(trimmedLine, "Host ") {
 			if inHostBlock {
-				// Add any fields that weren't in the existing config
+				// Add any fields that weren't in the existing config before starting new host block
 				newLines = append(newLines, addMissingFields(config, updatedFields)...)
 				inHostBlock = false
+				// Reset updatedFields for potential next host block
+				updatedFields = make(map[string]bool)
 			}
-			if trimmedLine == fmt.Sprintf("Host %s", config.Host) {
+
+			// Check if this is our target host
+			hostName := strings.TrimSpace(strings.TrimPrefix(trimmedLine, "Host "))
+			if hostName == config.Host {
 				inHostBlock = true
 				hostUpdated = true
+				newLines = append(newLines, line)
+			} else {
+				newLines = append(newLines, line)
 			}
+			continue
 		}
 
 		if inHostBlock {
-			if config.Proxy == "" && strings.Contains(trimmedLine, "Proxy") {
+			// Skip proxy lines if we want to remove proxy
+			if config.Proxy == "" && (strings.HasPrefix(trimmedLine, "ProxyCommand") || strings.HasPrefix(trimmedLine, "ProxyJump")) {
 				continue
 			}
 
-			if config.ForwardSocket == "" && strings.Contains(trimmedLine, "Forward") {
+			// Skip forward lines if we have new forward socket config
+			if len(config.ForwardSocket) > 0 && (strings.HasPrefix(trimmedLine, "LocalForward") || strings.HasPrefix(trimmedLine, "RemoteForward") || strings.HasPrefix(trimmedLine, "DynamicForward")) {
 				continue
 			}
+
 			// Parse and potentially update each field in the host block
 			field, value := parseField(trimmedLine)
-			if strings.Contains(field, "Proxy") {
-				value = config.Proxy
-			}
-
-			if strings.Contains(field, "Forward") {
-				value = config.ForwardSocket
-			}
-			if newValue := getUpdatedValue(config, field); newValue != "" {
-				newLines = append(newLines, fmt.Sprintf("    %s %s", field, newValue))
-				updatedFields[field] = true
-			} else if value != "" {
-				newLines = append(newLines, line) // Keep existing value
+			if field != "" {
+				if newValue := getUpdatedValue(config, field); newValue != "" {
+					// Update with new value
+					newLines = append(newLines, fmt.Sprintf("    %s %s", field, newValue))
+					updatedFields[normalizeFieldName(field)] = true
+				} else if value != "" {
+					// Keep existing value - use the original line to preserve formatting
+					newLines = append(newLines, line)
+					updatedFields[normalizeFieldName(field)] = true
+				}
+				// If field exists but has no value, we skip it (don't add empty config lines)
+			} else {
+				// Keep non-field lines (comments, empty lines, etc.)
+				newLines = append(newLines, line)
 			}
 		} else {
 			newLines = append(newLines, line)
@@ -804,11 +802,24 @@ func updateSSHConfig(configPath string, config SSHConfig) error {
 
 // parseField extracts the field name and value from a config line
 func parseField(line string) (string, string) {
-	parts := strings.SplitN(line, " ", 2)
-	if len(parts) == 2 {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+		return "", ""
+	}
+
+	parts := strings.SplitN(trimmed, " ", 2)
+	if len(parts) >= 2 {
 		return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
 	}
+	if len(parts) == 1 {
+		return strings.TrimSpace(parts[0]), ""
+	}
 	return "", ""
+}
+
+// normalizeFieldName converts field names to consistent format for comparison
+func normalizeFieldName(field string) string {
+	return strings.ToLower(field)
 }
 
 // getUpdatedValue returns the new value for a field if it's provided in the input config
@@ -821,13 +832,11 @@ func getUpdatedValue(config SSHConfig, field string) string {
 		return config.User
 	case "proxycommand":
 		return config.Proxy
-	case "forwardsocket":
-		return config.ForwardSocket
 	case "port":
 		return config.Port
 	case "identityfile":
 		return config.IdentityFile
-	// Add other fields as needed
+	// Don't handle ForwardSocket here since it's handled specially
 	default:
 		return ""
 	}
@@ -837,31 +846,34 @@ func getUpdatedValue(config SSHConfig, field string) string {
 // but were not present or updated in the existing config
 func addMissingFields(config SSHConfig, updatedFields map[string]bool) []string {
 	var missingFields []string
-	if config.HostName != "" && !updatedFields["HostName"] {
+
+	if config.HostName != "" && !updatedFields["hostname"] {
 		missingFields = append(missingFields, fmt.Sprintf("    HostName %s", config.HostName))
 	}
 
-	if config.User != "" && !updatedFields["User"] {
+	if config.User != "" && !updatedFields["user"] {
 		missingFields = append(missingFields, fmt.Sprintf("    User %s", config.User))
 	}
 
-	if config.Port != "" && !updatedFields["Port"] {
+	if config.Port != "" && !updatedFields["port"] {
 		missingFields = append(missingFields, fmt.Sprintf("    Port %s", config.Port))
 	}
 
-	if config.Proxy != "" && !updatedFields["ProxyCommand"] {
+	if config.Proxy != "" && !updatedFields["proxycommand"] {
 		missingFields = append(missingFields, fmt.Sprintf("    ProxyCommand %s", config.Proxy))
 	}
 
-	if config.ForwardSocket != "" && !updatedFields["LocalForward"] {
-		missingFields = append(missingFields, fmt.Sprintf("    LocalForward %s", config.ForwardSocket))
-	}
-
-	if config.IdentityFile != "" && !updatedFields["IdentityFile"] {
+	if config.IdentityFile != "" && !updatedFields["identityfile"] {
 		missingFields = append(missingFields, fmt.Sprintf("    IdentityFile %s", config.IdentityFile))
 	}
 
-	// Add other fields as needed
+	// Handle ForwardSocket specially - always add if provided
+	if len(config.ForwardSocket) > 0 {
+		for _, f := range config.ForwardSocket {
+			missingFields = append(missingFields, fmt.Sprintf("    LocalForward %s", f))
+		}
+	}
+
 	return missingFields
 }
 
@@ -869,6 +881,7 @@ func addMissingFields(config SSHConfig, updatedFields map[string]bool) []string 
 func generateHostBlock(config SSHConfig) []string {
 	var block []string
 	block = append(block, fmt.Sprintf("Host %s", config.Host))
+
 	if config.HostName != "" {
 		block = append(block, fmt.Sprintf("    HostName %s", config.HostName))
 	}
@@ -885,10 +898,12 @@ func generateHostBlock(config SSHConfig) []string {
 		block = append(block, fmt.Sprintf("    ProxyCommand %s", config.Proxy))
 	}
 
-	if config.ForwardSocket != "" {
-		block = append(block, fmt.Sprintf("    LocalForward %s", config.ForwardSocket))
+	if len(config.ForwardSocket) > 0 {
+		for _, f := range config.ForwardSocket {
+			block = append(block, fmt.Sprintf("    LocalForward %s", f))
+		}
 	}
-	// Add other fields as needed
+
 	return block
 }
 
@@ -1059,7 +1074,6 @@ func processCliArgs() (ConsoleConfig, SSHConfig, *string, string) {
 	sql := flag.Bool("sql", false, "Direct access to the sshcli.db file to run sql queries")
 	profileType := flag.String("type", "ssh", "profile type, can be ssh or console, default is ssh")
 	proxy := flag.String("http_proxy", "", "http proxy to be used for the ssh/sftp over http connectivity (optional),eg. 10.10.10.10:8000")
-	forwardsocket := flag.String("forward_socket", "", "The ssh tunnel param to create a ssh tunnel using \"ssh -L <localPort>:<TargetMachine>:<TargetPort> JumpServerProfile\" command (optional),eg. 10.10.10.10:8000")
 
 	flag.Parse()
 
@@ -1102,13 +1116,12 @@ func processCliArgs() (ConsoleConfig, SSHConfig, *string, string) {
 		}
 	case "ssh":
 		sshProfile = SSHConfig{
-			Host:          *host,
-			HostName:      *hostname,
-			ForwardSocket: *forwardsocket,
-			Password:      passString,
-			User:          *username,
-			Port:          *port,
-			IdentityFile:  *identityFile,
+			Host:         *host,
+			HostName:     *hostname,
+			Password:     passString,
+			User:         *username,
+			Port:         *port,
+			IdentityFile: *identityFile,
 		}
 
 		if len(sshProfile.IdentityFile) > 0 {
@@ -1118,14 +1131,6 @@ func processCliArgs() (ConsoleConfig, SSHConfig, *string, string) {
 
 		if len(*proxy) > 0 {
 			sshProfile.Proxy = "nc -X connect -x " + *proxy + " %h %p"
-		}
-		if len(*forwardsocket) > 0 {
-			localport, err := findAvailablePort()
-			if err != nil {
-				fmt.Println("Error finding an empty local port:", err)
-				os.Exit(1)
-			}
-			sshProfile.ForwardSocket = fmt.Sprintf("%d %s", localport, *forwardsocket)
 		}
 	}
 
@@ -1192,7 +1197,7 @@ func ExecTheUI(configPath string) error {
 	}
 
 	if err := navigateToNext(chosen, hosts, configPath); err != nil {
-		return fmt.Errorf("error navigating to next folder: %w", err)
+		return err
 	}
 
 	return nil
@@ -1261,12 +1266,12 @@ func navigateToNext(chosen string, hosts []SSHConfig, configPath string) error {
 
 		if err := Connect(submenu_chosen, configPath, hosts); err != nil {
 			chosenParts := strings.Split(submenu_chosen, " ")
-			return fmt.Errorf("error connecting to host '%s': %w", chosenParts[1], err)
+			return fmt.Errorf("'%s': %w", chosenParts[1], err)
 		}
 	} else {
 		if err := Connect(chosen, configPath, hosts); err != nil {
 			chosenParts := strings.Split(chosen, " ")
-			return fmt.Errorf("error connecting to host '%s': %w", chosenParts, err)
+			return fmt.Errorf("'%s': %w", chosenParts[1], err)
 		}
 	}
 
@@ -1424,7 +1429,6 @@ func findAvailablePort() (int, error) {
 }
 
 func Connect(chosen string, configPath string, hosts []SSHConfig) error {
-
 	chosen_type := ""
 	chosen = cleanTheString(chosen, "onlyColors")
 
@@ -1783,7 +1787,6 @@ func getHosts(sshConfigPath string) []SSHConfig {
 			if fName, err := readFolderForHostFromDB(host); err == nil && fName != "NULL" && fName != "" {
 				currentHost.Folder = fName
 			}
-
 		} else if currentHost != nil {
 			if after, ok := strings.CutPrefix(line, "HostName "); ok {
 				currentHost.HostName = after
@@ -1794,7 +1797,7 @@ func getHosts(sshConfigPath string) []SSHConfig {
 			} else if after, ok := strings.CutPrefix(line, "ProxyCommand "); ok {
 				currentHost.Proxy = after
 			} else if after, ok := strings.CutPrefix(line, "LocalForward "); ok {
-				currentHost.ForwardSocket = after
+				currentHost.ForwardSocket = append(currentHost.ForwardSocket, after)
 			} else if after, ok := strings.CutPrefix(line, "IdentityFile "); ok {
 				currentHost.IdentityFile = after
 			}
@@ -2207,7 +2210,7 @@ func AddForwardSocketToProfile(hostName, configPath string) error {
 		return fmt.Errorf("error extracting host: %w", err)
 	}
 
-	h.ForwardSocket = forwardSocket
+	h.ForwardSocket = append(h.ForwardSocket, forwardSocket)
 
 	if err := updateSSHConfig(configPath, h); err != nil {
 		fmt.Println("Error adding/updating profile:", err)
@@ -2242,7 +2245,7 @@ func DeleteFordwardSocketFromProfile(hostName, configPath string) error {
 		return fmt.Errorf("error extracting host: %w", err)
 	}
 
-	h.ForwardSocket = ""
+	h.ForwardSocket = []string{}
 
 	if err := updateSSHConfig(configPath, h); err != nil {
 		fmt.Println("Error adding/updating profile:", err)
@@ -2658,16 +2661,14 @@ func main() {
 	file, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
 		fmt.Println(err)
-		os.Exit(1)
+	} else {
+		defer file.Close()
+		log.SetOutput(file)
+		log.SetFlags(log.LstdFlags | log.Lshortfile)
 	}
-	defer file.Close()
-
-	log.SetOutput(file)
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
 	//########################################## DBS #####################################################
 	// Here we initialize the database
-
 	d := filepath.Join(homeDir, ".ssh")
 	if _, err := os.Stat(d); err != nil {
 		fmt.Printf(" [!] %sCould not find/access the ssh config file path: %s. Creating it...\n%s", green, d, reset)
