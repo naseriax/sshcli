@@ -48,7 +48,6 @@ const (
 	hasProxy    = "📡"
 	hasTun      = "🚇"
 	hasNote     = "🖍️"
-	divider     = ""
 )
 
 var CompileTime = ""
@@ -1177,6 +1176,7 @@ func ExecTheUI(configPath string) error {
 		Items:    items_to_show,
 		Size:     35,
 		Templates: &promptui.SelectTemplates{
+			Help:     "Use / toggles search. 🔑: password, 📡: http proxy, 🚇: ssh tunnel, 🖍️ : note",
 			Label:    "{{ . }}?",
 			Active:   "\U0001F534 {{ . | cyan }}",
 			Inactive: "  {{ . | cyan }}",
@@ -1245,6 +1245,7 @@ func navigateToNext(chosen string, hosts []SSHConfig, configPath string) error {
 			Items:    submenu_items,
 			Size:     35,
 			Templates: &promptui.SelectTemplates{
+				Help:     "Use / toggles search. 🔑: password, 📡: http proxy, 🚇: ssh tunnel, 🖍️ : note",
 				Label:    "{{ . }}?",
 				Active:   "\U0001F534 {{ . | cyan }}",
 				Inactive: "  {{ . | cyan }}",
@@ -1945,21 +1946,28 @@ func getItems(hosts []SSHConfig, isSubmenu bool) []string {
 		item += fmt.Sprintf(" %s ", strings.Repeat(" ", maxRowLength-len(item)))
 
 		if len(host.Proxy) > 0 {
-			item += hasProxy
+			item += "[" + hasProxy + "]"
+		} else {
+			item += "[  ]"
 		}
 
 		if len(host.ForwardSocket) > 0 {
-			item += hasTun
+			item += "[" + hasTun + "]"
+		} else {
+			item += "[  ]"
 		}
 
 		if isThereAnyNote(host.Host) {
-			item += hasNote
+			item += "[" + hasNote + " ]"
+		} else {
+			item += "[  ]"
 		}
 
 		if isTherePass(host.Host) {
-			item += hasPassword
+			item += "[" + hasPassword + "]"
+		} else {
+			item += "[  ]"
 		}
-
 		connectionItemsNewFormat = append(connectionItemsNewFormat, item)
 	}
 
