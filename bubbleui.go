@@ -22,7 +22,7 @@ func getSubMenuContent() []string {
 	return []string{
 		fmt.Sprintf("%s(s)%s %sssh%s", yellow, reset, BOLD, reset),
 		fmt.Sprintf("%s(o)%s sftp (os native)", yellow, reset),
-		fmt.Sprintf("%s(t)%s %sftp (text UI)%s", yellow, reset, BOLD, reset),
+		fmt.Sprintf("%s(t)%s %ssftp (text UI)%s", yellow, reset, BOLD, reset),
 		fmt.Sprintf("%s(i)%s %sping%s", yellow, reset, BOLD, reset),
 		fmt.Sprintf("%s(c)%s %stcping%s", yellow, reset, BOLD, reset),
 		fmt.Sprintf("%s(k)%s ssh-copy-id", yellow, reset),
