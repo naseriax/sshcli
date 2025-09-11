@@ -8,7 +8,6 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.6
 	github.com/creack/pty v1.1.24
 	github.com/gdamore/tcell/v2 v2.9.0
-	github.com/manifoldco/promptui v0.9.0
 	github.com/pkg/sftp v1.13.9
 	github.com/rivo/tview v0.42.0
 	golang.org/x/crypto v0.41.0
@@ -23,7 +22,6 @@ require (
 	github.com/charmbracelet/x/ansi v0.10.1 // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.13 // indirect
 	github.com/charmbracelet/x/term v0.2.1 // indirect
-	github.com/chzyer/readline v1.5.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/gdamore/encoding v1.0.1 // indirect

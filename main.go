@@ -25,7 +25,6 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/manifoldco/promptui"
 	"golang.org/x/term"
 )
 
@@ -623,23 +622,14 @@ func editProfile(profileName, configPath string) error {
 				}
 			}
 
-			prompt := promptui.Select{
-				Label: "Select Option",
-				Items: []string{"Rename host", fmt.Sprintf("Save and duplicate as %s", newHost.Host)},
-				Size:  2,
-				Templates: &promptui.SelectTemplates{
-					Label:    "{{ . }}?",
-					Active:   "\U0001F534 {{ . | cyan }}",
-					Inactive: "  {{ . | cyan }}",
-					Selected: "\U0001F7E2 {{ . | red | cyan }}",
-				},
-			}
+			items := []string{"Rename host", fmt.Sprintf("Save and duplicate as %s", newHost.Host)}
 
-			_, whatToDo, err := prompt.Run()
+			whatToDo, err := main_ui(items, "Rename or Duplicate?\n\n", false)
 			if err != nil {
 				handleExitSignal(err)
 				return fmt.Errorf("error selecting option: %w", err)
 			}
+
 			if whatToDo == "Rename host" {
 				oldPass, err := readAndDecryptPassFromDB(config.Host)
 				if err != nil {
@@ -1162,32 +1152,10 @@ func ExecTheUI(configPath string) error {
 
 	hosts := getHosts(configPath)
 	items_to_show := getItems(hosts, false)
-
-	searcher := func(input string, index int) bool {
-		item := items_to_show[index]
-		name := strings.ReplaceAll(strings.ToLower(item), " ", "")
-		input = strings.ReplaceAll(strings.ToLower(input), " ", "")
-		return strings.Contains(name, input)
-	}
-
-	prompt := promptui.Select{
-		Label:    "Select Host",
-		Searcher: searcher,
-		Items:    items_to_show,
-		Size:     35,
-		Templates: &promptui.SelectTemplates{
-			Help:     "Use / toggles search. 🔑: password, 📡: http proxy, 🚇: ssh tunnel, 🖍️ : note",
-			Label:    "{{ . }}?",
-			Active:   "\U0001F534 {{ . | cyan }}",
-			Inactive: "  {{ . | cyan }}",
-			Selected: "\U0001F7E2 {{ . | red | cyan }}",
-		},
-	}
-
-	_, chosen, err := prompt.Run()
+	msg := "Legend:\n🔑: password, 📡: http proxy, 🚇: ssh tunnel, 🖍️ : note\n\n"
+	chosen, err := main_ui(items_to_show, msg, false)
 	if err != nil {
-		handleExitSignal(err)
-		return fmt.Errorf("error running host selection prompt: %w", err)
+		return err
 	}
 
 	if err := navigateToNext(chosen, hosts, configPath); err != nil {
@@ -1230,32 +1198,11 @@ func navigateToNext(chosen string, hosts []SSHConfig, configPath string) error {
 		}
 
 		submenu_items := getItems(sshconfigInFolder, true)
+		msg := "Legend:\n🔑: password, 📡: http proxy, 🚇: ssh tunnel, 🖍️ : note\n\n"
 
-		submenu_searcher := func(input string, index int) bool {
-			item := submenu_items[index]
-			name := strings.ReplaceAll(strings.ToLower(item), " ", "")
-			input = strings.ReplaceAll(strings.ToLower(input), " ", "")
-
-			return strings.Contains(name, input)
-		}
-
-		submenu_prompt := promptui.Select{
-			Label:    "Select Host",
-			Searcher: submenu_searcher,
-			Items:    submenu_items,
-			Size:     35,
-			Templates: &promptui.SelectTemplates{
-				Help:     "Use / toggles search. 🔑: password, 📡: http proxy, 🚇: ssh tunnel, 🖍️ : note",
-				Label:    "{{ . }}?",
-				Active:   "\U0001F534 {{ . | cyan }}",
-				Inactive: "  {{ . | cyan }}",
-				Selected: "\U0001F7E2 {{ . | red | cyan }}",
-			},
-		}
-
-		_, submenu_chosen, err := submenu_prompt.Run()
+		submenu_chosen, err := main_ui(submenu_items, msg, false)
 		if err != nil {
-			return fmt.Errorf("error running submenu prompt: %w", err)
+			return err
 		}
 
 		if err := Connect(submenu_chosen, configPath, hosts); err != nil {
@@ -1447,7 +1394,7 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 
 	switch chosen_type {
 	case "ssh":
-		command, err := b_ui()
+		command, err := main_ui(getSubMenuContent(), "", true)
 		if err != nil {
 			return err
 		}
@@ -1657,21 +1604,14 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 					return fmt.Errorf("failed to add ForwardSocket:, %w", err)
 				}
 
-				tunnel_prompt := promptui.Select{
-					Label: "Open the tunnel right now",
-					Items: []string{"Yes", "No"},
-					Size:  3,
-					Templates: &promptui.SelectTemplates{
-						Label:    "{{ . }}?",
-						Active:   "\U0001F534 {{ . | cyan }}",
-						Inactive: "  {{ . | cyan }}",
-						Selected: "\U0001F7E2 {{ . | red | cyan }}",
-					},
+				items := []string{
+					"Yes",
+					"No",
 				}
 
-				_, userAction, err := tunnel_prompt.Run()
+				userAction, err := main_ui(items, "Connect to the jumpserver now?\n\n", false)
 				if err != nil {
-					return fmt.Errorf("error running submenu prompt: %w", err)
+					return err
 				}
 
 				if userAction == "Yes" {
@@ -1727,20 +1667,10 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 			cmd.Run()
 		}
 	case "console":
-		fmt.Println("console")
-		promptCommand := promptui.Select{
-			Label: "Select Command",
-			Size:  35,
-			Items: []string{"Connect via cu", "Duplicate/Edit Profile", "Remove Profile"},
-			Templates: &promptui.SelectTemplates{
-				Label:    "{{ . }}?",
-				Active:   "\U0001F534 {{ . | cyan }}",
-				Inactive: "  {{ . | cyan }}",
-				Selected: "\U0001F7E2 {{ . | red | cyan }}",
-			},
-		}
 
-		_, command, err := promptCommand.Run()
+		items := []string{"Connect via cu", "Duplicate/Edit Profile", "Remove Profile"}
+
+		command, err := main_ui(items, "", false)
 		if err != nil {
 			handleExitSignal(err)
 			return fmt.Errorf("error running command prompt: %w", err)
@@ -1946,28 +1876,29 @@ func getItems(hosts []SSHConfig, isSubmenu bool) []string {
 		item += fmt.Sprintf(" %s ", strings.Repeat(" ", maxRowLength-len(item)))
 
 		if len(host.Proxy) > 0 {
-			item += "[" + hasProxy + "]"
+			item += "(" + hasProxy + ")"
 		} else {
-			item += "[  ]"
+			item += "(  )"
 		}
 
 		if len(host.ForwardSocket) > 0 {
-			item += "[" + hasTun + "]"
+			item += "(" + hasTun + ")"
 		} else {
-			item += "[  ]"
+			item += "(  )"
 		}
 
 		if isThereAnyNote(host.Host) {
-			item += "[" + hasNote + " ]"
+			item += "(" + hasNote + " )"
 		} else {
-			item += "[  ]"
+			item += "(  )"
 		}
 
 		if isTherePass(host.Host) {
-			item += "[" + hasPassword + "]"
+			item += "(" + hasPassword + ")"
 		} else {
-			item += "[  ]"
+			item += "(  )"
 		}
+
 		connectionItemsNewFormat = append(connectionItemsNewFormat, item)
 	}
 
@@ -2243,6 +2174,13 @@ func DeleteProxyFromProfile(hostName, configPath string) error {
 	return nil
 }
 
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
 func DeleteFordwardSocketFromProfile(hostName, configPath string) error {
 
 	h, err := extractHost(hostName, configPath)
@@ -2272,19 +2210,7 @@ func moveToFolder(hostName string) error {
 	FolderList = append(FolderList, "Remove from folder")
 	folderName := ""
 
-	prompt := promptui.Select{
-		Label: "Select Folder",
-		Items: FolderList,
-		Size:  20,
-		Templates: &promptui.SelectTemplates{
-			Label:    "{{ . }}?",
-			Active:   "\U0001F534 {{ . | cyan }}",
-			Inactive: "  {{ . | cyan }}",
-			Selected: "\U0001F7E2 {{ . | red | cyan }}",
-		},
-	}
-
-	_, folderName, err = prompt.Run()
+	folderName, err = main_ui(FolderList, "Select the folder to move to:\n\n", false)
 	if err != nil {
 		handleExitSignal(err)
 		return fmt.Errorf("error selecting folder: %w", err)
