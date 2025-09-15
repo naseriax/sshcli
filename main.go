@@ -53,6 +53,7 @@ var CompileTime = ""
 var passAuthSupported = true
 var key []byte
 var db *sql.DB
+var legend string = "🔑: password, 📡: http proxy, 🚇: ssh tunnel, 🖍️ : note"
 
 // SSHConfig represents the configuration for an SSH host entry
 type SSHConfig struct {
@@ -94,6 +95,7 @@ var dataFile = "passwords.json"
 var hostPasswords HostPasswords
 
 type HostPasswords []HostPassword
+
 type HostPassword struct {
 	Host     string `json:"host"`
 	Password string `json:"password"`
@@ -536,7 +538,7 @@ func extractHost(profileName, configPath string) (SSHConfig, error) {
 	return c, fmt.Errorf("failed to find the profile in the config file")
 }
 
-func editProfile(profileName, configPath string) error {
+func editProfile(profileName, configPath, mode string) error {
 	tmpfile, err := os.CreateTemp("", "ssh-profile-*.md")
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %v", err)
@@ -545,9 +547,20 @@ func editProfile(profileName, configPath string) error {
 
 	hosts := getHosts(configPath)
 	config := SSHConfig{}
-	for _, h := range hosts {
-		if h.Host == profileName {
-			config = h
+
+	if mode == "new" {
+		config = SSHConfig{
+			Host:         "new-profile",
+			HostName:     "10.10.10.10",
+			User:         "root",
+			Port:         "22",
+			IdentityFile: "~/.ssh/id_rsa",
+		}
+	} else {
+		for _, h := range hosts {
+			if h.Host == profileName {
+				config = h
+			}
 		}
 	}
 
@@ -607,27 +620,30 @@ func editProfile(profileName, configPath string) error {
 		//newHost is the sshconfig after modifiation
 		//config is the sshconfig before modification
 
-		if newHost.Host == config.Host {
+		if newHost.Host == config.Host && mode != "new" {
 			fmt.Printf("Modified profile for %s\n", profileName)
 		} else {
-			foldername, err := readFolderForHostFromDB(config.Host)
-			if err != nil {
-				if !strings.Contains(err.Error(), "host not found in folder query") {
-					return fmt.Errorf("failed to read folder for %v:%w", config.Host, err)
+			whatToDo := "new"
+			if mode != "new" {
+				foldername, err := readFolderForHostFromDB(config.Host)
+				if err != nil {
+					if !strings.Contains(err.Error(), "host not found in folder query") {
+						return fmt.Errorf("failed to read folder for %v:%w", config.Host, err)
+					}
+				} else {
+					newHost.Folder = foldername
+					if err := updateProfileFolder(newHost.Host, newHost.Folder, ""); err != nil {
+						log.Printf("failed to push the new host's (%v) folder to the database:%v", newHost.Host, err.Error())
+					}
 				}
-			} else {
-				newHost.Folder = foldername
-				if err := updateProfileFolder(newHost.Host, newHost.Folder, ""); err != nil {
-					log.Printf("failed to push the new host's (%v) folder to the database:%v", newHost.Host, err.Error())
+
+				items := []string{"Rename host", fmt.Sprintf("Save and duplicate as %s", newHost.Host)}
+
+				whatToDo, err = main_ui(items, "Rename or Duplicate?\n\n", false)
+				if err != nil {
+					handleExitSignal(err)
+					return fmt.Errorf("error selecting option: %w", err)
 				}
-			}
-
-			items := []string{"Rename host", fmt.Sprintf("Save and duplicate as %s", newHost.Host)}
-
-			whatToDo, err := main_ui(items, "Rename or Duplicate?\n\n", false)
-			if err != nil {
-				handleExitSignal(err)
-				return fmt.Errorf("error selecting option: %w", err)
 			}
 
 			if whatToDo == "Rename host" {
@@ -1152,7 +1168,7 @@ func ExecTheUI(configPath string) error {
 
 	hosts := getHosts(configPath)
 	items_to_show := getItems(hosts, false)
-	msg := "Legend:\n🔑: password, 📡: http proxy, 🚇: ssh tunnel, 🖍️ : note\n\n"
+	msg := "Legend:\n" + legend + "\n\n"
 	chosen, err := main_ui(items_to_show, msg, false)
 	if err != nil {
 		return err
@@ -1198,8 +1214,7 @@ func navigateToNext(chosen string, hosts []SSHConfig, configPath string) error {
 		}
 
 		submenu_items := getItems(sshconfigInFolder, true)
-		msg := "Legend:\n🔑: password, 📡: http proxy, 🚇: ssh tunnel, 🖍️ : note\n\n"
-
+		msg := "Legend:\n" + legend + "\n\n"
 		submenu_chosen, err := main_ui(submenu_items, msg, false)
 		if err != nil {
 			return err
@@ -1210,9 +1225,16 @@ func navigateToNext(chosen string, hosts []SSHConfig, configPath string) error {
 			return fmt.Errorf("'%s': %w", chosenParts[1], err)
 		}
 	} else {
-		if err := Connect(chosen, configPath, hosts); err != nil {
-			chosenParts := strings.Split(chosen, " ")
-			return fmt.Errorf("'%s': %w", chosenParts[1], err)
+		if chosen == sshIcon+" New SSH Profile" {
+			if err := editProfile("", configPath, "new"); err != nil {
+				return fmt.Errorf("failed to create a new profile: %w", err)
+			}
+
+		} else {
+			if err := Connect(chosen, configPath, hosts); err != nil {
+				chosenParts := strings.Split(chosen, " ")
+				return fmt.Errorf("'%s': %w", chosenParts[1], err)
+			}
 		}
 	}
 
@@ -1408,7 +1430,7 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 				log.Println(err)
 			}
 		} else if strings.EqualFold(command, "Duplicate/Edit Profile") {
-			if err := editProfile(hostName, configPath); err != nil {
+			if err := editProfile(hostName, configPath, "edit"); err != nil {
 				return err
 			}
 		} else if strings.EqualFold(command, "Remove Profile") {
@@ -1923,6 +1945,10 @@ func getItems(hosts []SSHConfig, isSubmenu bool) []string {
 	}
 
 	items = append(items, consoleItems...)
+
+	if !isSubmenu {
+		items = append([]string{sshIcon + " New SSH Profile"}, items...)
+	}
 
 	return items
 }
