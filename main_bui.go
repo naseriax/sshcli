@@ -206,7 +206,11 @@ func (m *baseModel) updateBase(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // Common view logic
 func (m *baseModel) viewBase() string {
+
 	var s strings.Builder
+	if m.isSSHContext {
+		s.WriteString(fmt.Sprintf("\n%sPress shortcut key, / to search, arrows+Enter to select, or q to quit.%s\n\n", yellow, reset))
+	}
 
 	if m.inSearchMode {
 		s.WriteString(fmt.Sprintf("Search mode: %s\n\n", m.searchQuery))
@@ -226,7 +230,9 @@ func (m *baseModel) viewBase() string {
 		}
 	}
 
-	s.WriteString(fmt.Sprintf("\n%sPress shortcut key, / to search, arrows+Enter to select, or q to quit.%s\n", yellow, reset))
+	if !m.isSSHContext {
+		s.WriteString(fmt.Sprintf("\n%sPress shortcut key, / to search, arrows+Enter to select, or q to quit.%s\n", yellow, reset))
+	}
 
 	return s.String()
 }
@@ -236,21 +242,21 @@ func (m ssh_model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m.baseModel.updateBase(msg)
 }
 
-func (m ssh_model) View() string {
-	return m.baseModel.viewBase()
-}
-
-func (m ssh_model) Init() tea.Cmd {
-	return nil
-}
-
 // Interface methods for main_model
 func (m main_model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m.baseModel.updateBase(msg)
 }
 
+func (m ssh_model) View() string {
+	return m.baseModel.viewBase()
+}
+
 func (m main_model) View() string {
 	return m.baseModel.viewBase()
+}
+
+func (m ssh_model) Init() tea.Cmd {
+	return nil
 }
 
 func (m main_model) Init() tea.Cmd {

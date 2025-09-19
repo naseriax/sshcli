@@ -1007,9 +1007,9 @@ func removeValue(hostname string) error {
 	}
 
 	if rowsAffected == 0 {
-		log.Printf("ℹ️ No record found for host '%s'.\n", hostname)
+		fmt.Printf("ℹ️ No record found for host '%s'.\n", hostname)
 	} else {
-		log.Printf("🗑️ Successfully deleted %d record(s) '%s'.\n", rowsAffected, hostname)
+		fmt.Printf("🗑️ Successfully deleted %d record(s) '%s'.\n", rowsAffected, hostname)
 	}
 
 	return tx.Commit()
