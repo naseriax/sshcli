@@ -1442,14 +1442,20 @@ func findAvailablePort() (int, error) {
 	return port, nil
 }
 
-func writeUrlDb(hostname string) error {
+func writeUrlDb(hostname, configPath string) error {
+	var url string
 
 	if len(hostname) == 0 {
 		return fmt.Errorf("host is empty")
 	}
 
-	var url string
-	fmt.Print("Enter the url (eg. https://10.10.10.1:8443): ")
+	h, err := extractHost(hostname, configPath)
+	if err != nil {
+		return err
+	}
+	suggestion := "https://" + h.HostName + ":443"
+
+	fmt.Printf("Enter the url (eg: %s ): ", suggestion)
 	scanner := bufio.NewScanner(os.Stdin)
 	if scanner.Scan() {
 		url = scanner.Text()
@@ -1484,20 +1490,27 @@ func writeUrlDb(hostname string) error {
 }
 
 func readUrlFromDb(host string) (string, error) {
-	var url string
-
-	query := "SELECT url FROM sshprofiles WHERE host = ? AND url IS NOT NULL"
-
+	var currentUrl sql.NullString
+	query := "SELECT url FROM sshprofiles WHERE host = ?"
 	row := db.QueryRow(query, host)
-	err := row.Scan(&url)
 
-	if err == sql.ErrNoRows {
-		return "", fmt.Errorf("host not found in url query: %s", host)
-	} else if err != nil {
-		return "", fmt.Errorf("read url query failed: %w", err)
+	err := row.Scan(&currentUrl)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", fmt.Errorf("host: %s not found", host)
+		}
+
+		return "", fmt.Errorf("error reading url for profile %v from db: %v", host, err)
 	}
 
-	return url, nil
+	if currentUrl.Valid {
+
+		// If the value is not NULL, use the .String field
+		return currentUrl.String, nil
+	} else {
+		// Handle the NULL case, for example, by writing an empty string or a placeholder
+		return "", nil
+	}
 }
 
 func Connect(chosen string, configPath string, hosts []SSHConfig) error {
@@ -1549,7 +1562,7 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 			}
 		} else if strings.EqualFold(command, "Set URL") {
 
-			if err := writeUrlDb(hostName); err != nil {
+			if err := writeUrlDb(hostName, configPath); err != nil {
 				return fmt.Errorf("failed to push the url to db for the host %s:%w", hostName, err)
 			}
 
