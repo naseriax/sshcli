@@ -1,4 +1,4 @@
-GITLAB_URL="https://github.com/naseriax/sshcli/releases/download/20250923.1153/sshcli_linux_arm64"EXISTS": syntax error (1)/sshcli_linux_arm64"EXISTS": syntax error (1)/sshcli_linux_arm64"
+GITLAB_URL="https://github.com/naseriax/sshcli/releases/download/20250923.1225/sshcli_linux_arm64"
 DEST_DIR="$HOME/sshcli"
 NEW_NAME="sshcli"
 echo "Starting download of the sshcli executable for Linux (ARM64)..."
