@@ -47,13 +47,14 @@ const (
 	hasProxy    = "📡"
 	hasTun      = "🚇"
 	hasNote     = "🖍️"
+	hasUrl      = "🌐"
 )
 
 var CompileTime = ""
 var passAuthSupported = true
 var key []byte
 var db *sql.DB
-var legend string = "🔑: password, 📡: http proxy, 🚇: ssh tunnel, 🖍️ : note"
+var legend string = "🔑: password, 🌐: url, 📡: http proxy, 🚇: ssh tunnel, 🖍️ : note"
 
 // SSHConfig represents the configuration for an SSH host entry
 type SSHConfig struct {
@@ -257,6 +258,7 @@ func initDB(filepath string) error {
 			host TEXT PRIMARY KEY,
 			password TEXT,
 			note TEXT,
+			url TEXT,
 			folder TEXT
 		);`,
 
@@ -283,6 +285,40 @@ func initDB(filepath string) error {
 		if _, err := db.Exec(stmt); err != nil {
 			return fmt.Errorf("failed to create table '%s': %w", name, err)
 		}
+	}
+
+	// Add url column
+	rows, err := db.Query("PRAGMA table_info(sshprofiles)")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer rows.Close()
+
+	var columnExists bool
+	for rows.Next() {
+		var (
+			cid      int
+			name     string
+			dataType string
+			notNull  int
+			dfltVal  sql.NullString
+			pk       int
+		)
+		if err := rows.Scan(&cid, &name, &dataType, &notNull, &dfltVal, &pk); err != nil {
+			log.Fatal(err)
+		}
+		if name == "url" {
+			columnExists = true
+			break
+		}
+	}
+
+	if !columnExists {
+		_, err := db.Exec("ALTER TABLE sshprofiles ADD COLUMN url TEXT")
+		if err != nil {
+			log.Fatalf("failed to add url column: %v", err)
+		}
+		fmt.Println("Successfully added the 'url' column.")
 	}
 
 	return nil
@@ -877,6 +913,22 @@ func addMissingFields(config SSHConfig, updatedFields map[string]bool) []string 
 	return missingFields
 }
 
+func openBrowser(url string) error {
+	var err error = nil
+	switch runtime.GOOS {
+	case "linux":
+		err = exec.Command("xdg-open", url).Start()
+	case "windows":
+		err = exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	case "darwin":
+		err = exec.Command("open", url).Start()
+	default:
+		err = fmt.Errorf("unsupported platform")
+	}
+
+	return err
+}
+
 // generateHostBlock creates a complete host block for a new host
 func generateHostBlock(config SSHConfig) []string {
 	var block []string
@@ -1390,6 +1442,64 @@ func findAvailablePort() (int, error) {
 	return port, nil
 }
 
+func writeUrlDb(hostname string) error {
+
+	if len(hostname) == 0 {
+		return fmt.Errorf("host is empty")
+	}
+
+	var url string
+	fmt.Print("Enter the url (eg. https://10.10.10.1:8443): ")
+	scanner := bufio.NewScanner(os.Stdin)
+	if scanner.Scan() {
+		url = scanner.Text()
+	}
+
+	if err := scanner.Err(); err != nil {
+		fmt.Fprintln(os.Stderr, "Error reading the url from stdin:", err)
+	}
+
+	if len(url) == 0 {
+		return fmt.Errorf("url is empty")
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin the db transaction for url insertion:%v", err)
+	}
+
+	stmt, err := tx.Prepare("INSERT INTO sshprofiles(host,url) VALUES(?,?) ON CONFLICT(host) DO UPDATE SET url = excluded.url;")
+	if err != nil {
+		return fmt.Errorf("failed to prepare the db for url insertion:%v", err)
+	}
+	defer stmt.Close()
+
+	_, err = stmt.Exec(hostname, url)
+	if err != nil {
+		return fmt.Errorf("failed to insert the url for the host %v: %v", hostname, err)
+	}
+
+	log.Println("\nurl has been successfully added to the url database!")
+	return tx.Commit()
+}
+
+func readUrlFromDb(host string) (string, error) {
+	var url string
+
+	query := "SELECT url FROM sshprofiles WHERE host = ? AND url IS NOT NULL"
+
+	row := db.QueryRow(query, host)
+	err := row.Scan(&url)
+
+	if err == sql.ErrNoRows {
+		return "", fmt.Errorf("host not found in url query: %s", host)
+	} else if err != nil {
+		return "", fmt.Errorf("read url query failed: %w", err)
+	}
+
+	return url, nil
+}
+
 func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 	chosen_type := ""
 	chosen = cleanTheString(chosen, "onlyColors")
@@ -1437,7 +1547,27 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 			if err := deleteSSHProfile(hostName); err != nil {
 				return err
 			}
+		} else if strings.EqualFold(command, "Set URL") {
 
+			if err := writeUrlDb(hostName); err != nil {
+				return fmt.Errorf("failed to push the url to db for the host %s:%w", hostName, err)
+			}
+
+		} else if strings.EqualFold(command, "Open in Browser") {
+			if url, err := readUrlFromDb(hostName); err == nil {
+				if len(url) > 0 {
+					return openBrowser(url)
+				} else {
+
+					h, err := extractHost(hostName, configPath)
+					if err != nil {
+						return fmt.Errorf("failed to read the profile")
+					} else {
+						return openBrowser("https://" + h.HostName)
+					}
+
+				}
+			}
 		} else if strings.EqualFold(command, "Reveal Password") {
 			password, err := readAndDecryptPassFromDB(hostName)
 			if err != nil {
@@ -1480,14 +1610,12 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 			bytePassword, err := term.ReadPassword(int(syscall.Stdin))
 			fmt.Println()
 			if err != nil {
-				fmt.Println("Error reading password:", err)
 				return fmt.Errorf("error reading password: %w", err)
 			}
 
 			passString := string(bytePassword)
 
 			if err := encryptAndPushPassToDB(hostName, passString); err != nil {
-				fmt.Println("FAILED!")
 				return fmt.Errorf("failed to push the password to db in set password for the host %v:%v", hostName, err)
 			}
 		} else if strings.EqualFold(command, "ping") {
@@ -1905,6 +2033,12 @@ func getItems(hosts []SSHConfig, isSubmenu bool) []string {
 
 		if len(host.ForwardSocket) > 0 {
 			item += "(" + hasTun + ")"
+		} else {
+			item += "(  )"
+		}
+
+		if url, err := readUrlFromDb(host.Host); err == nil && len(url) > 0 {
+			item += "(" + hasUrl + ")"
 		} else {
 			item += "(  )"
 		}

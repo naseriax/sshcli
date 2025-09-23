@@ -1,4 +1,4 @@
-$ReleaseUrl = "https://github.com/naseriax/sshcli/releases/download/20250919.1608/sshcli_windows_arm64.exe"
+$ReleaseUrl = "https://github.com/naseriax/sshcli/releases/download/20250923.1132/sshcli_windows_arm64.exe"EXISTS": syntax error (1)/sshcli_windows_arm64.exe"EXISTS": syntax error (1)/sshcli_windows_arm64.exe"
 $DestDir    = Join-Path $HOME "sshcli"
 $AppName    = "sshcli.exe"
 $FinalPath  = Join-Path $DestDir $AppName

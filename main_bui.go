@@ -33,6 +33,7 @@ type ssh_model struct {
 func getSubMenuContent() []string {
 	return []string{
 		fmt.Sprintf("%s(s)%s %sssh%s", yellow, reset, BOLD, reset),
+		fmt.Sprintf("%s(w)%s Open in Browser", yellow, reset),
 		fmt.Sprintf("%s(o)%s sftp (os native)", yellow, reset),
 		fmt.Sprintf("%s(t)%s %ssftp (text UI)%s", yellow, reset, BOLD, reset),
 		fmt.Sprintf("%s(i)%s %sping%s", yellow, reset, BOLD, reset),
@@ -41,6 +42,7 @@ func getSubMenuContent() []string {
 		fmt.Sprintf("%s(d)%s %sDuplicate/Edit Profile%s", yellow, reset, BOLD, reset),
 		fmt.Sprintf("%s(p)%s %sSet Password%s", yellow, reset, BOLD, reset),
 		fmt.Sprintf("%s(h)%s Set http proxy", yellow, reset),
+		fmt.Sprintf("%s(u)%s Set URL", yellow, reset),
 		fmt.Sprintf("%s(x)%s Set SSH Tunnel", yellow, reset),
 		fmt.Sprintf("%s(f)%s Set Folder", yellow, reset),
 		fmt.Sprintf("%s(n)%s %sNotes%s", yellow, reset, BOLD, reset),
@@ -73,6 +75,7 @@ func (m *baseModel) filterChoices() {
 func (m *baseModel) handleSSHShortcuts(key string) (tea.Model, tea.Cmd) {
 	shortcuts := map[string]string{
 		"s": fmt.Sprintf("%s(s)%s ssh", yellow, reset),
+		"w": fmt.Sprintf("%s(w)%s Open in Browser", yellow, reset),
 		"n": fmt.Sprintf("%s(n)%s Notes", yellow, reset),
 		"p": fmt.Sprintf("%s(p)%s Set Password", yellow, reset),
 		"t": fmt.Sprintf("%s(t)%s sftp (text UI)", yellow, reset),
@@ -84,6 +87,7 @@ func (m *baseModel) handleSSHShortcuts(key string) (tea.Model, tea.Cmd) {
 		"H": fmt.Sprintf("%s(H)%s Remove http proxy", yellow, reset),
 		"R": fmt.Sprintf("%s(R)%s Remove Profile", yellow, reset),
 		"x": fmt.Sprintf("%s(x)%s Set SSH Tunnel", yellow, reset),
+		"u": fmt.Sprintf("%s(u)%s Set URL", yellow, reset),
 		"X": fmt.Sprintf("%s(X)%s Remove SSH Tunnel", yellow, reset),
 		"f": fmt.Sprintf("%s(f)%s Set Folder", yellow, reset),
 		"k": fmt.Sprintf("%s(k)%s ssh-copy-id", yellow, reset),
