@@ -1,4 +1,4 @@
-$ReleaseUrl = "https://github.com/naseriax/sshcli/releases/download/20250923.1225/sshcli_windows_arm64.exe"
+$ReleaseUrl = "https://github.com/naseriax/sshcli/releases/download/20250926.1322/sshcli_windows_arm64.exe"
 $DestDir    = Join-Path $HOME "sshcli"
 $AppName    = "sshcli.exe"
 $FinalPath  = Join-Path $DestDir $AppName

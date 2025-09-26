@@ -964,7 +964,6 @@ func deleteSSHProfile(host string) error {
 	// Get the user's home directory
 	configPath, err := setupFilesFolders()
 	if err != nil {
-		fmt.Println(err)
 		return fmt.Errorf("failed to get the config file path: %w", err)
 	}
 	// Read existing config file
@@ -1026,7 +1025,6 @@ func deleteSSHProfile(host string) error {
 	}
 
 	if err := removeValue(host); err != nil {
-		fmt.Println(err)
 		return fmt.Errorf("failed to remove the %v from the password database:%v", host, err)
 	}
 
@@ -1520,7 +1518,6 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 	chosenParts := strings.Split(chosen, " ")
 
 	if len(chosenParts) < 1 {
-		fmt.Println("Invalid item")
 		return fmt.Errorf("invalid item selected")
 	}
 
@@ -1531,7 +1528,6 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 	} else if strings.Contains(chosen, sshIcon) {
 		chosen_type = "ssh"
 	} else {
-		fmt.Println("entry not implemented2")
 		return fmt.Errorf("unknown entry")
 	}
 
@@ -1717,7 +1713,6 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 
 			h, err := extractHost(hostName, configPath)
 			if err != nil {
-				fmt.Println(err)
 				return fmt.Errorf("error extracting host: %w", err)
 			}
 
@@ -1756,7 +1751,6 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 				} else {
 					fmt.Println(err.Error())
 				}
-				fmt.Println(err)
 				return fmt.Errorf("error initializing SFTP: %w", err)
 			}
 
@@ -1790,7 +1784,6 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 
 			// make sure sftp or ssh commands are availble in the shell
 			if err := checkShellCommands(strings.ToLower(command)); err != nil {
-				fmt.Println(err.Error())
 				return fmt.Errorf("command not found: %w", err)
 			}
 
@@ -1841,7 +1834,6 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 
 		consoleProfile, err := readConsoleProfileFromDb(hostName)
 		if err != nil {
-			fmt.Println("Error reading console profile:", err)
 			return fmt.Errorf("error reading console profile: %w", err)
 		}
 
@@ -1857,14 +1849,12 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 
 			err := editConsoleProfile(consoleProfile)
 			if err != nil {
-				fmt.Println(err)
 				return fmt.Errorf("error editing console profile: %w", err)
 			}
 
 		} else if strings.ToLower(command) == "remove profile" {
 			err := removeConsoleConfig(hostName)
 			if err != nil {
-				fmt.Println(err)
 				return fmt.Errorf("error deleting console profile: %w", err)
 			}
 		}
