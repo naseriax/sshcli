@@ -2,7 +2,7 @@
 sshcli is a command-line interface tool that uses the ~/.ssh/config file as a profile database. It allows you to add or remove profiles and connect to them in an interactive environment.
 
 ## Requirements to Run
- - The **ssh** and **sftp** commands must be available in your system's PATH environment variable.
+ - The **nc** on mac/**ncat** on linux/windows, **ssh** and **sftp** commands must be available in your system's PATH environment variable.
  - The **sshpass** tool can be installed optionally if password authentication is needed.
  - The sshcli.db file acts as an encrypted password database since the ssh config file doesn't support storing passwords.
  - ssh passwords can be added to new or existing profiles using the --host VM10 --askpass parameters, or by choosing "Set Password" in the profile submenu.
@@ -129,7 +129,7 @@ Usage of sshcli:
 ```
 
 ### Significant Features
-- Ability to store a note per ssh profile, encrypted and stored in the sqlite database
+- Ability to store notes per ssh profile, encrypted and stored in the sqlite database
 - `ssh` tunnel setup (-L)
 - `ssh` over `http_proxy` support
 - `sftp` TUI
@@ -138,12 +138,9 @@ Usage of sshcli:
 - Supports console connection profiles (MacOS only, uses cu tool)
 - Flat or foldered structure.
 - `ping` and `tcping` integration (`ping` and `tcping` must be available in the cli)
-
+- Access the sql db directly via `sshcli -sql`
 ### Recommended Usage
-- Install the **Alacritty terminal** (works on other terminal emulators as well, but Alacritty provides the best experience).
-  `https://alacritty.org/`
-- Add the folder path where the `sshcli` tool exists to the **macOS `PATH` variable** by adding this line to the `~/.zshrc` file:
-  `PATH=$PATH:/Path/to/the/tool/folder`
+- Install the **Alacritty terminal** (works on other terminal emulators as well, but Alacritty provides the best experience).`https://alacritty.org/`
 - Add the desired keyboard binding in the Alacritty config file by adding the following lines to `~/.config/alacritty/alacritty.toml`:
     - This runs the tool on **Option+S** in Alacritty.
     - The tool's executable name has been changed to `sshcli` in this example.
@@ -155,7 +152,7 @@ Usage of sshcli:
   chars = "sshcli\n"
 ```
 ### Some instructions (Please wait for them to load)
-###### On first execution, below files/folder will be created is not created already:
+###### On first execution, below files/folder will be created if not created already:
 ```
 ~/.ssh folder
 ~/.ssh/config file

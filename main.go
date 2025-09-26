@@ -1180,7 +1180,11 @@ func processCliArgs() (ConsoleConfig, SSHConfig, *string, string) {
 		}
 
 		if len(*proxy) > 0 {
-			sshProfile.Proxy = "nc -X connect -x " + *proxy + " %h %p"
+			if runtime.GOOS == "darwin" {
+				sshProfile.Proxy = "nc -X connect -x " + *proxy + " %h %p"
+			} else {
+				sshProfile.Proxy = "ncat --proxy " + *proxy + " --proxy-type http %h %p"
+			}
 		}
 	}
 
@@ -1791,6 +1795,21 @@ func Connect(chosen string, configPath string, hosts []SSHConfig) error {
 			method := "key"
 			password := `''`
 
+			h, err := extractHost(hostName, configPath)
+			if err != nil {
+				return fmt.Errorf("error extracting host: %w", err)
+			}
+
+			if len(h.Proxy) > 0 {
+				tool := "nc"
+				if runtime.GOOS != "darwin" {
+					tool = "ncat"
+				}
+				if err := checkShellCommands(tool); err != nil {
+					return fmt.Errorf("%s is not installed on your machine. remove the http_proxy from the profile to connect", tool)
+				}
+			}
+
 			// Check if sshpass command is availble in the shell, needed for passsword authentication
 			if err := checkShellCommands("sshpass"); err != nil {
 				log.Println("sshpass is not installed!")
@@ -2255,7 +2274,11 @@ func AddProxyToProfile(hostName, configPath string) error {
 		return err
 	}
 
-	proxy = "nc -X connect -x " + cleanProxy + " %h %p"
+	if runtime.GOOS == "darwin" {
+		proxy = "nc -X connect -x " + cleanProxy + " %h %p"
+	} else {
+		proxy = "ncat --proxy " + cleanProxy + " --proxy-type http %h %p"
+	}
 
 	h, err := extractHost(hostName, configPath)
 	if err != nil {
