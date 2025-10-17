@@ -552,6 +552,7 @@ func OpenSqlCli() {
 			} else {
 				fmt.Printf("%d row(s) affected.\n", rowsAffected)
 			}
+
 		}
 
 		if scanner.Err() != nil {
@@ -733,6 +734,10 @@ func editProfile(profileName, configPath, mode string) error {
 }
 
 func updateSSHConfig(configPath string, config SSHConfig) error {
+	if strings.Contains(config.Host, " ") {
+		log.Printf("can't use whitespace in ssh profile name: %s", config.Host)
+		os.Exit(1)
+	}
 	// Read existing config file
 	content, err := os.ReadFile(configPath)
 	if err != nil && !os.IsNotExist(err) {
@@ -1904,6 +1909,9 @@ func getHosts(sshConfigPath string) []SSHConfig {
 			host := after
 			if host == "*" {
 				continue
+			}
+			if strings.Contains(host, " ") {
+				log.Printf("can't use whitespace in ssh profile name: %s", host)
 			}
 			if currentHost != nil {
 				hosts = append(hosts, *currentHost)
