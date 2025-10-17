@@ -1912,6 +1912,7 @@ func getHosts(sshConfigPath string) []SSHConfig {
 			}
 			if strings.Contains(host, " ") {
 				log.Printf("can't use whitespace in ssh profile name: %s", host)
+				continue
 			}
 			if currentHost != nil {
 				hosts = append(hosts, *currentHost)
