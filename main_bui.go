@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -19,6 +20,7 @@ type baseModel struct {
 	message      string
 	inSearchMode bool
 	isSSHContext bool
+	lastClick    time.Time
 }
 
 // Wrapper types for type safety
@@ -201,6 +203,61 @@ func (m *baseModel) updateBase(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleSSHShortcuts(msg.String())
 		}
 	}
+	// Handle mouse clicks (detect double-click)
+	switch msg := msg.(type) {
+	case tea.MouseMsg:
+		// Only handle left button *release* clicks to avoid treating
+		// the press+release of a single click as a double-click.
+		if msg.Button == tea.MouseButtonLeft && msg.Type == tea.MouseRelease {
+			now := time.Now()
+
+			// If second click within threshold => treat as Enter
+			if now.Sub(m.lastClick) <= 200*time.Millisecond {
+				if len(m.choices) > 0 {
+					m.choice = m.choices[m.cursor]
+					m.searchQuery = ""
+					m.inSearchMode = false
+					m.filterChoices()
+					if m.isSSHContext {
+						return ssh_model{*m}, tea.Quit
+					}
+					return main_model{*m}, tea.Quit
+				}
+			} else {
+				// Single click: update cursor based on clicked row (best-effort)
+				// Map terminal Y coordinate to displayed choice index.
+				// This is a simple heuristic; adjust if your header/message layout differs.
+
+				// compute number of lines before choices start
+				headerLines := -1
+				if m.isSSHContext {
+					// leading blank + instruction + blank line
+					headerLines += 4
+				}
+				if m.inSearchMode {
+					// "Search mode: <query>" + blank line
+					headerLines += 3
+				} else if !m.isSSHContext {
+					// account for message lines (if any)
+					if m.message != "" {
+						headerLines += len(strings.Split(m.message, "\n"))
+					}
+				}
+
+				clicked := msg.Y - headerLines
+				if clicked >= 0 && clicked < len(m.choices) {
+					m.cursor = clicked
+				} else {
+					// clamp cursor
+					if m.cursor >= len(m.choices) {
+						m.cursor = max(0, len(m.choices)-1)
+					}
+				}
+			}
+
+			m.lastClick = now
+		}
+	}
 
 	if m.isSSHContext {
 		return ssh_model{*m}, nil
@@ -278,7 +335,7 @@ func main_ui(items []string, message string, isSshContextMenu bool) (string, err
 				selected:     make(map[int]string),
 				isSSHContext: true,
 			},
-		}, tea.WithAltScreen())
+		}, tea.WithAltScreen(), tea.WithMouseAllMotion())
 	} else {
 		p = tea.NewProgram(main_model{
 			baseModel: baseModel{
@@ -288,7 +345,7 @@ func main_ui(items []string, message string, isSshContextMenu bool) (string, err
 				message:      message,
 				isSSHContext: false,
 			},
-		}, tea.WithAltScreen())
+		}, tea.WithAltScreen(), tea.WithMouseAllMotion())
 	}
 
 	finalModel, err := p.Run()
