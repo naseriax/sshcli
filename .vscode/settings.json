@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "/actions/*": "yaml",
+        "/templates/*": "jinja",
+        "/workflows/*": "yaml"
+    }
+}

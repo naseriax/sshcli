@@ -2167,7 +2167,7 @@ func setupFilesFolders() (string, error) {
 
 	p := filepath.Join(homeDir, ".ssh", "config")
 	if _, err := os.Stat(p); err != nil {
-		fmt.Printf(" [!] %sCould not find the ssh config file: %v. Creating it...\n%s", green, p, reset)
+		// fmt.Printf(" [!] %sCould not find the ssh config file: %v. Creating it...\n%s", green, p, reset)
 
 		if err := createFile(p); err != nil {
 			fmt.Printf("%sfailed to create/access the config file : %v%s", red, p, reset)
