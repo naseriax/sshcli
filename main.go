@@ -2491,7 +2491,7 @@ func readFolderForHostFromDB(host string) (string, error) {
 	row := db.QueryRow(query, host)
 	err := row.Scan(&folder)
 
-	if err == sql.ErrNoRows {
+	if err == sql.ErrNoRows || strings.Contains(err.Error(), "converting NULL to string is unsupported") {
 		return "", fmt.Errorf("host not found in folder query: %s", host)
 	} else if err != nil {
 		return "", fmt.Errorf("read folder query failed: %w", err)
