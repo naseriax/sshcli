@@ -2486,12 +2486,12 @@ func getHostsInAFolder(foldername string) ([]string, error) {
 func readFolderForHostFromDB(host string) (string, error) {
 	var folder string
 
-	query := "SELECT folder FROM sshprofiles WHERE host = ?"
+	query := "SELECT folder FROM sshprofiles WHERE host = ? AND folder IS NOT NULL"
 
 	row := db.QueryRow(query, host)
 	err := row.Scan(&folder)
 
-	if err == sql.ErrNoRows || strings.Contains(err.Error(), "converting NULL to string is unsupported") {
+	if err == sql.ErrNoRows {
 		return "", fmt.Errorf("host not found in folder query: %s", host)
 	} else if err != nil {
 		return "", fmt.Errorf("read folder query failed: %w", err)
