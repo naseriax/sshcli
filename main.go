@@ -48,6 +48,7 @@ const (
 	hasTun      = "🚇"
 	hasNote     = "🖍️"
 	hasUrl      = "🌐"
+	private     = "🙈"
 )
 
 var CompileTime = ""
@@ -55,6 +56,7 @@ var passAuthSupported = true
 var key []byte
 var db *sql.DB
 var legend string = "🔑: password, 🌐: url, 📡: http proxy, 🚇: ssh tunnel, 🖍️ : note"
+var isSecure bool
 
 // SSHConfig represents the configuration for an SSH host entry
 type SSHConfig struct {
@@ -808,11 +810,6 @@ func updateSSHConfig(configPath string, newconfig SSHConfig) error {
 		os.Exit(1)
 	}
 
-	oldConfig, err := extractHost(newconfig.Host, configPath)
-	if err != nil {
-		return err
-	}
-
 	// Read existing config file
 	content, err := os.ReadFile(configPath)
 	if err != nil && !os.IsNotExist(err) {
@@ -833,7 +830,7 @@ func updateSSHConfig(configPath string, newconfig SSHConfig) error {
 		if strings.HasPrefix(trimmedLine, "Host ") {
 			if inHostBlock {
 				// Add any fields that weren't in the existing config before starting new host block
-				newLines = append(newLines, addMissingFields(oldConfig, newconfig, updatedFields)...)
+				newLines = append(newLines, addMissingFields(newconfig, updatedFields)...)
 
 				inHostBlock = false
 				// Reset updatedFields for potential next host block
@@ -886,7 +883,7 @@ func updateSSHConfig(configPath string, newconfig SSHConfig) error {
 
 		// Handle the case where the host block is at the end of the file
 		if i == len(lines)-1 && inHostBlock {
-			newLines = append(newLines, addMissingFields(oldConfig, newconfig, updatedFields)...)
+			newLines = append(newLines, addMissingFields(newconfig, updatedFields)...)
 		}
 	}
 
@@ -982,7 +979,7 @@ func Unique[T comparable](input []T) []T {
 
 // addMissingFields generates config lines for fields that are in the input config
 // but were not present or updated in the existing config
-func addMissingFields(oldconfig, newconfig SSHConfig, updatedFields map[string]bool) []string {
+func addMissingFields(newconfig SSHConfig, updatedFields map[string]bool) []string {
 	var missingFields []string
 
 	if newconfig.HostName != "" && !updatedFields["hostname"] {
@@ -1008,16 +1005,9 @@ func addMissingFields(oldconfig, newconfig SSHConfig, updatedFields map[string]b
 	// Handle ForwardSocket specially - always add if provided
 	if len(newconfig.ForwardSocket) > 0 {
 		for _, f := range newconfig.ForwardSocket {
-			exists := false
-			for _, oldf := range oldconfig.ForwardSocket {
-				if oldf == f {
-					exists = true
-				}
-			}
 
-			if !exists {
-				missingFields = append(missingFields, fmt.Sprintf("    LocalForward %s", f))
-			}
+			missingFields = append(missingFields, fmt.Sprintf("    LocalForward %s", f))
+
 		}
 	}
 
@@ -1202,6 +1192,7 @@ func processCliArgs() (ConsoleConfig, SSHConfig, *string, string) {
 	Parity := flag.String("parity", "none", "parity, default is none")
 	device := flag.String("device", "/dev/tty.usbserial-1140", "device path, default is /dev/tty.usbserial-1140")
 	version := flag.Bool("version", false, "prints the compile time (version)")
+	secure := flag.Bool("secure", false, "Masks the sensitive data")
 	sql := flag.Bool("sql", false, "Direct access to the sshcli.db file to run sql queries")
 	profileType := flag.String("type", "ssh", "profile type, can be ssh or console, default is ssh")
 	proxy := flag.String("http_proxy", "", "http proxy to be used for the ssh/sftp over http connectivity (optional),eg. 10.10.10.10:8000")
@@ -1217,6 +1208,10 @@ func processCliArgs() (ConsoleConfig, SSHConfig, *string, string) {
 		OpenSqlCli()
 		db.Close()
 		os.Exit(0)
+	}
+
+	if *secure {
+		isSecure = true
 	}
 
 	var passString string

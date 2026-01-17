@@ -327,6 +327,38 @@ func (m main_model) Init() tea.Cmd {
 func main_ui(items []string, message string, isSshContextMenu bool) (string, error) {
 	var p *tea.Program
 
+	var secureItems []string
+	if isSecure {
+		maxlen := -1
+		for _, chosen := range items {
+			chosen = cleanTheString(chosen, "onlyColors")
+			if strings.Contains(chosen, sshIcon) {
+				if !strings.Contains(chosen, "New SSH Profile") {
+					chosenParts := strings.Split(chosen, " ")
+					if len(chosenParts[1]) > maxlen {
+						maxlen = len(chosenParts[1])
+					}
+				}
+			}
+		}
+
+		for _, chosen := range items {
+			newItem := ""
+			chosen = cleanTheString(chosen, "onlyColors")
+			if strings.Contains(chosen, sshIcon) {
+				if !strings.Contains(chosen, "New SSH Profile") {
+					chosenParts := strings.Split(chosen, " ")
+					newItem = private + " " + chosenParts[1] + strings.Repeat(" ", maxlen-len(chosenParts[1])) + " " + chosen[strings.Index(chosen, "("):]
+					secureItems = append(secureItems, newItem)
+				} else {
+					secureItems = append(secureItems, chosen)
+				}
+			} else {
+				secureItems = append(secureItems, chosen)
+			}
+		}
+	}
+
 	if isSshContextMenu {
 		p = tea.NewProgram(ssh_model{
 			baseModel: baseModel{
@@ -337,15 +369,28 @@ func main_ui(items []string, message string, isSshContextMenu bool) (string, err
 			},
 		}, tea.WithAltScreen(), tea.WithMouseAllMotion())
 	} else {
-		p = tea.NewProgram(main_model{
-			baseModel: baseModel{
-				allChoices:   items,
-				choices:      items,
-				selected:     make(map[int]string),
-				message:      message,
-				isSSHContext: false,
-			},
-		}, tea.WithAltScreen(), tea.WithMouseAllMotion())
+
+		if isSecure {
+			p = tea.NewProgram(main_model{
+				baseModel: baseModel{
+					allChoices:   secureItems,
+					choices:      secureItems,
+					selected:     make(map[int]string),
+					message:      message,
+					isSSHContext: false,
+				},
+			}, tea.WithAltScreen(), tea.WithMouseAllMotion())
+		} else {
+			p = tea.NewProgram(main_model{
+				baseModel: baseModel{
+					allChoices:   items,
+					choices:      items,
+					selected:     make(map[int]string),
+					message:      message,
+					isSSHContext: false,
+				},
+			}, tea.WithAltScreen(), tea.WithMouseAllMotion())
+		}
 	}
 
 	finalModel, err := p.Run()
@@ -358,8 +403,21 @@ func main_ui(items []string, message string, isSshContextMenu bool) (string, err
 			return m.choice, nil
 		}
 	} else {
+
 		if m, ok := finalModel.(main_model); ok && m.choice != "" {
-			return m.choice, nil
+			if isSecure {
+				itemIndex := 0
+
+				for i, j := range secureItems {
+					if j == m.choice {
+						itemIndex = i
+					}
+				}
+				return items[itemIndex], nil
+
+			} else {
+				return m.choice, nil
+			}
 		}
 	}
 
