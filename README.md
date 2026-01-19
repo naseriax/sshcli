@@ -114,10 +114,10 @@ Usage of sshcli:
 
 ### Features
 - Ability to store notes per ssh profile, encrypted and stored in the sqlite database
-- `ssh` tunnel setup (same as -L)
-- `ssh` Socks5 tunnel (same as -D)
-- `ssh` over `http_proxy` support
-- `sftp` TUI
+- ssh tunnel setup (same as -L)
+- ssh Socks5 tunnel (same as -D)
+- ssh over `http_proxy` support
+- sftp TUI
 - Zero-Touch encrypted SSH password database (using `sshpass`)
 - Uses the default `~/.ssh/config` file as the profile database
 - Supports console connection profiles (MacOS only, uses cu tool)
