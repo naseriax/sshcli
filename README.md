@@ -13,32 +13,32 @@ sshcli is a command-line interface tool that uses the ~/.ssh/config file as a pr
 ## Installation
 - MacOS (Apple Silicon - arm):
 ```bash
-curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/install_scripts/install_sshcli_mac_arm.sh | zsh
+curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/install_scripts/install_mac_arm.sh | zsh
 ```
 
 - MacOS (Intel - x86_64):
 ```bash
-curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/install_scripts/install_sshcli_mac_x86_64.sh | zsh
+curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/install_scripts/install_mac_x86_64.sh | zsh
 ```
 
 - Linux (arm):
 ```bash
-curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/install_scripts/install_sshcli_linux_arm.sh | bash
+curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/install_scripts/install_linux_arm.sh | bash
 ```
 
 - Linux (x86_64):
 ```bash
-curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/install_scripts/install_sshcli_linux_x86_64.sh | bash
+curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/install_scripts/install_linux_x86_64.sh | bash
 ```
 
 - Windows (arm):
 ```bash
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/install_scripts/install_sshcli_win_arm.ps1" -UseBasicParsing | Invoke-Expression
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/install_scripts/install_win_arm.ps1" -UseBasicParsing | Invoke-Expression
 ```
 
 - Windows (x86_64):
 ```bash
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/install_scripts/install_sshcli_win_x86_64.ps1" -UseBasicParsing | Invoke-Expression
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/install_scripts/install_win_x86_64.ps1" -UseBasicParsing | Invoke-Expression
 ```
 
 
