@@ -1,4 +1,4 @@
-GITLAB_URL="https://github.com/naseriax/sshcli/releases/download/20260119.1758/sshcli_linux_x86_64"
+GITLAB_URL="https://github.com/naseriax/sshcli/releases/download/20260119.1801/sshcli_linux_x86_64"
 DEST_DIR="$HOME/sshcli"
 NEW_NAME="sshcli"
 echo "Starting download of the sshcli executable for Linux (AMD64)..."

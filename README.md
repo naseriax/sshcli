@@ -95,37 +95,27 @@ To compile the code, you must have Golang installed on your system.
 ```
 Usage of sshcli:
   -action string
-        Action to perform: add, remove
-  -askpass
-        Password prompt
+    	Action to perform: add, remove, only for Console profiles
   -baudrate string
-        BaudRate, default is 9600 (default "9600")
+    	BaudRate, default is 9600 (default "9600"),only for Console profiles
+  -cleanup
+    	Delete sqlite records that are not in the ssh config file
   -data_bits string
-        databits, default is 8 (default "8")
+    	databits, default is 8 (default "8"),only for Console profiles
   -device string
-        device path, default is /dev/tty.usbserial-1140 (default "/dev/tty.usbserial-1140")
+    	device path, default is /dev/tty.usbserial-1140 (default "/dev/tty.usbserial-1140"),only for Console profiles
   -host string
-        Host alias
-  -hostname string
-        HostName or IP address
-  -httpproxy string
-        http proxy to be used for the ssh/sftp over http connectivity (optional),eg. 10.10.10.10:8000
-  -key string
-        IdentityFile path
+    	Host alias
   -parity string
-        parity, default is none (default "none")
-  -port string
-        Port Number
+    	parity, default is none (default "none"),only for Console profiles
+  -secure
+    	Masks the sensitive data
   -sql
-        Direct access to the sshcli.db file to run sql queries
+    	Direct access to the sshcli.db file to run sql queries
   -stop_bit string
-        stop bit, default is 1 (default "1")
-  -type string
-        profile type, can be ssh or console, default is ssh (default "ssh")
-  -username string
-        Username
+    	stop bit, default is 1 (default "1"),only for Console profiles
   -version
-        prints the compile time (version)
+    	prints the compile time (version)
 ```
 
 ### Features
