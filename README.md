@@ -13,32 +13,32 @@ sshcli is a command-line interface tool that uses the ~/.ssh/config file as a pr
 ## Installation
 - MacOS (Apple Silicon - arm):
 ```
-curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/installation_scripts/install_sshcli_mac_arm.sh | zsh
+curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/install_scripts/install_sshcli_mac_arm.sh | zsh
 ```
 
 - MacOS (Intel - x86_64):
 ```
-curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/installation_scripts/install_sshcli_mac_x86_64.sh | zsh
+curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/install_scripts/install_sshcli_mac_x86_64.sh | zsh
 ```
 
 - Linux (arm):
 ```
-curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/installation_scripts/install_sshcli_linux_arm.sh | bash
+curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/install_scripts/install_sshcli_linux_arm.sh | bash
 ```
 
 - Linux (x86_64):
 ```
-curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/installation_scripts/install_sshcli_linux_x86_64.sh | bash
+curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/install_scripts/install_sshcli_linux_x86_64.sh | bash
 ```
 
 - Windows (arm):
 ```
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/installation_scripts/install_sshcli_windows_arm.ps1" -UseBasicParsing | Invoke-Expression
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/install_scripts/install_sshcli_win_arm.ps1" -UseBasicParsing | Invoke-Expression
 ```
 
 - Windows (x86_64):
 ```
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/installation_scripts/install_sshcli_windows_x86_64.ps1" -UseBasicParsing | Invoke-Expression
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/install_scripts/install_sshcli_win_x86_64.ps1" -UseBasicParsing | Invoke-Expression
 ```
 
 
@@ -81,7 +81,7 @@ To compile the code, you must have Golang installed on your system.
 
 ## Usage
 
-- Just run `sshcli` on your terminal to see the UI
+- Call the binary in your terminal to see the UI
 - Add or update a profile in the ~/.ssh/config file:
 ```
  # sshcli --action add --host t001 --hostname 10.10.10.10 --key '~/.ssh/id_rsa' --username root  --port 22 --askpass
@@ -128,7 +128,7 @@ Usage of sshcli:
         prints the compile time (version)
 ```
 
-### Significant Features
+### Features
 - Ability to store notes per ssh profile, encrypted and stored in the sqlite database
 - `ssh` tunnel setup (-L)
 - `ssh` over `http_proxy` support
@@ -160,8 +160,8 @@ Usage of sshcli:
 ```
 ###### On each execution, below backup files will be created
 ```
-~/.ssh/config_lastbackup file
-~/.ssh/sshcli.db_lastbackup file
+~/.ssh/config_backup file
+~/.ssh/sshcli.db_backup file
 ```
  - A sample ssh profile will be added to the ~/.ssh/config file if the config file is empty.
 
