@@ -5,67 +5,64 @@ sshcli is a command-line interface tool that uses the ~/.ssh/config file as a pr
  - The **nc** on mac/**ncat** on linux/windows, **ssh** and **sftp** commands must be available in your system's PATH environment variable.
  - The **sshpass** tool can be installed optionally if password authentication is needed.
  - The sshcli.db file acts as an encrypted password database since the ssh config file doesn't support storing passwords.
- - ssh passwords can be added to new or existing profiles using the --host VM10 --askpass parameters, or by choosing "Set Password" in the profile submenu.
+ - ssh passwords can be added by choosing "Set Password" in the profile submenu.
 
 ## Supported Operating Systems:
   - In theory, all operating systems and cpu architecture are supported, but the testing is done only on MacOS.
 
 ## Installation
 - MacOS (Apple Silicon - arm):
-```
+```bash
 curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/install_scripts/install_sshcli_mac_arm.sh | zsh
 ```
 
 - MacOS (Intel - x86_64):
-```
+```bash
 curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/install_scripts/install_sshcli_mac_x86_64.sh | zsh
 ```
 
 - Linux (arm):
-```
+```bash
 curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/install_scripts/install_sshcli_linux_arm.sh | bash
 ```
 
 - Linux (x86_64):
-```
+```bash
 curl -fsSL https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/install_scripts/install_sshcli_linux_x86_64.sh | bash
 ```
 
 - Windows (arm):
-```
+```bash
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/install_scripts/install_sshcli_win_arm.ps1" -UseBasicParsing | Invoke-Expression
 ```
 
 - Windows (x86_64):
-```
+```bash
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/naseriax/sshcli/refs/heads/main/install_scripts/install_sshcli_win_x86_64.ps1" -UseBasicParsing | Invoke-Expression
 ```
 
 
-  - This script does below changes on your machine:
+  - What the installation script does to your machine?
     - Creates a new folder: ~/sshcli
-    - Downloads the sshcli binary and put it in ~/sshcli folder
+    - Downloads the latest sshcli binary and puts it in ~/sshcli folder
     - Adds exec permission to the executable
-    - Adds a new line to your ~/.zshrc file to add ~/sshcli to the PATH variable 
-
-- Or you can download the latest binary for your OS/CPU architecture from the releases section manually.
-  + Starting with release 20250808.0631, the new variant uses SQLite (no CGO required) to store passwords, encryption keys, notes and folder information.  
-  + If you're coming from a pre-SQLite release, the app will automatically migrate your passwords, encryption key, and folder structure to the sshcli.db file during the very first execution.
+    - Adds a new line to your ~/.zshrc (or the OS equivalent) file to add ~/sshcli to the PATH variable 
 
 ## Hints
 Use / to bring up the search field and find a host from the list more easily.
 Use **sshcli -sql** to access the sql client engine of the sshcli.db to check the content or do some fun queries.
+Use **sshcli -secure** to hide IPs, ports and username(Useful if sharing you screen).
 
 ## Compile (Optional)
 #### Requirements
-To compile the code, you must have Golang installed on your system.
+To compile the code, you must have Golang 1.25.5 installed on your system.
   - Check go.mod for the exact golang release requirement.
 
 #### Steps:
 - Install golang for your operating system and cpu architecture.
   `https://go.dev/dl/`
 - Clone the repository.
-  ```
+  ```bash
   git clone https://github.com/naseriax/sshcli.git
   cd sshcli
   ```
@@ -83,16 +80,15 @@ To compile the code, you must have Golang installed on your system.
 
 - Call the binary in your terminal to see the UI
 - Add or update a profile in the ~/.ssh/config file:
+```bash
+$> sshcli
 ```
- # sshcli --action add --host t001 --hostname 10.10.10.10 --key '~/.ssh/id_rsa' --username root  --port 22 --askpass
- Enter Password:
-```
-- Remove an existing SSH profile from the ~/.ssh/config file:
-```
-# sshcli --action remove --host t001
+
+```bash
+$> $sshcli --action remove --host t001
 ```
 - For more options, use the help command:
-```
+```bash
 Usage of sshcli:
   -action string
     	Action to perform: add, remove, only for Console profiles
@@ -120,7 +116,8 @@ Usage of sshcli:
 
 ### Features
 - Ability to store notes per ssh profile, encrypted and stored in the sqlite database
-- `ssh` tunnel setup (-L)
+- `ssh` tunnel setup (same as -L)
+- `ssh` Socks5 tunnel (same as -D)
 - `ssh` over `http_proxy` support
 - `sftp` TUI
 - Zero-Touch encrypted SSH password database (using `sshpass`)
@@ -128,13 +125,13 @@ Usage of sshcli:
 - Supports console connection profiles (MacOS only, uses cu tool)
 - Flat or foldered structure.
 - `ping` and `tcping` integration (`ping` and `tcping` must be available in the cli)
-- Access the sql db directly via `sshcli -sql`
+
 ### Recommended Usage
 - Install the **Alacritty terminal** (works on other terminal emulators as well, but Alacritty provides the best experience).`https://alacritty.org/`
 - Add the desired keyboard binding in the Alacritty config file by adding the following lines to `~/.config/alacritty/alacritty.toml`:
     - This runs the tool on **Option+S** in Alacritty.
     - The tool's executable name has been changed to `sshcli` in this example.
-```
+```bash
 [keyboard]
   [[keyboard.bindings]]
   key = "S"
@@ -143,13 +140,13 @@ Usage of sshcli:
 ```
 ### Some instructions (Please wait for them to load)
 ###### On first execution, below files/folder will be created if not created already:
-```
+```bash
 ~/.ssh folder
 ~/.ssh/config file
 ~/.ssh/sshcli.db file
 ```
 ###### On each execution, below backup files will be created
-```
+```bash
 ~/.ssh/config_backup file
 ~/.ssh/sshcli.db_backup file
 ```
