@@ -85,7 +85,7 @@ $> sshcli
 ```
 
 ```bash
-$> $sshcli --action remove --host t001
+$> sshcli --action remove --host t001
 ```
 - For more options, use the help command:
 ```bash
