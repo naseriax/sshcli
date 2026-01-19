@@ -84,11 +84,9 @@ To compile the code, you must have Golang 1.25.5 installed on your system.
 $> sshcli
 ```
 
-```bash
-$> sshcli --action remove --host t001
-```
 - For more options, use the help command:
 ```bash
+$> sshcli -h
 Usage of sshcli:
   -action string
     	Action to perform: add, remove, only for Console profiles
