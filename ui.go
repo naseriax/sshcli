@@ -11,7 +11,6 @@ import (
 
 func getSubMenuContent() []string {
 	return []string{
-		goback,
 		fmt.Sprintf("%s(s)%s %sssh%s", yellow, reset, BOLD, reset),
 		fmt.Sprintf("%s(w)%s Open in Browser", yellow, reset),
 		fmt.Sprintf("%s(o)%s sftp (os native)", yellow, reset),
@@ -32,6 +31,7 @@ func getSubMenuContent() []string {
 		fmt.Sprintf("%s(%%)%s Remove Socks Tunnel", yellow, reset),
 		fmt.Sprintf("%s(H)%s Remove http proxy", yellow, reset),
 		fmt.Sprintf("%s(R)%s Remove Profile", yellow, reset),
+		goback,
 	}
 }
 
@@ -90,11 +90,28 @@ func (m *baseModel) handleSSHShortcuts(key string) (tea.Model, tea.Cmd) {
 	return ssh_model{*m}, nil
 }
 
+func (m *baseModel) handleProfileShortcuts(key string) (tea.Model, tea.Cmd) {
+	shortcuts := map[string]string{
+		"b": goback,
+	}
+
+	if choice, exists := shortcuts[key]; exists {
+		m.choice = choice
+		m.searchQuery = ""
+		m.inSearchMode = false
+		m.filterChoices()
+		return main_model{*m}, tea.Quit
+	}
+
+	return main_model{*m}, nil
+}
+
 // Common update logic
 func (m *baseModel) updateBase(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
+
 		case "/":
 			if !m.inSearchMode {
 				m.inSearchMode = true
@@ -184,6 +201,8 @@ func (m *baseModel) updateBase(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if m.isSSHContext {
 			// Handle SSH keyboard shortcuts only when not in search mode
 			return m.handleSSHShortcuts(msg.String())
+		} else if !m.isSSHContext {
+			return m.handleProfileShortcuts(msg.String())
 		}
 	}
 	// Handle mouse clicks (detect double-click)

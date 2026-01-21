@@ -1165,7 +1165,7 @@ func (s *AllConfigs) getItems(folder string) []string {
 	}
 
 	if folder != "" {
-		items = append([]string{goback}, items...)
+		items = append(items, goback)
 	}
 
 	return items

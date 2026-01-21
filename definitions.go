@@ -26,7 +26,7 @@ const (
 	hasUrl      = "🌐"
 	private     = "🙈"
 	hasSocks    = "🧦"
-	goback      = "⬅️"
+	goback      = "(b) ⬅️"
 )
 
 var (
