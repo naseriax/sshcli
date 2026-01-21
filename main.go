@@ -679,7 +679,6 @@ func customPanicHandler() {
 
 func handleExitSignal(err error) {
 	if strings.EqualFold(strings.TrimSpace(err.Error()), "^C") {
-
 	} else {
 		fmt.Printf("Prompt failed %v\n", err)
 	}
@@ -1165,10 +1164,28 @@ func (s *AllConfigs) getItems(folder string) []string {
 		items = append([]string{sshIcon + " New SSH Profile"}, items...)
 	}
 
+	if folder != "" {
+		items = append([]string{goback}, items...)
+	}
+
 	return items
 }
 
 func (s *AllConfigs) navigateToNext(chosen string) error {
+
+	if chosen == goback {
+		if err := s.InitUi(""); err != nil {
+			if !strings.Contains(err.Error(), "^C") {
+				return fmt.Errorf("failed to back to the parent ui")
+			} else {
+				return fmt.Errorf(`
+      (o o)
+--oOO--(_)--OOo--
+ Have a nice day!
+                    			`)
+			}
+		}
+	}
 
 	chosen_type := ""
 
@@ -1187,7 +1204,11 @@ func (s *AllConfigs) navigateToNext(chosen string) error {
 
 		if err := s.InitUi(CleanedChosen); err != nil {
 			if !strings.Contains(err.Error(), "^C") {
-				log.Println(err)
+				return fmt.Errorf(`
+      (o o)
+--oOO--(_)--OOo--
+ Have a nice day!
+                    			`)
 			}
 			return err
 		}
@@ -1947,6 +1968,25 @@ func (s *AllConfigs) Connect(chosen string) error {
 		command, err := main_ui(getSubMenuContent(), "", true)
 		if err != nil {
 			return err
+		}
+
+		if command == goback {
+			if h := s.extractHost(hostName); h != nil {
+				if err := s.InitUi(h.Folder); err != nil {
+					if !strings.Contains(err.Error(), "^C") {
+						return fmt.Errorf("failed to back to the parent ui")
+					} else {
+						return fmt.Errorf(`
+      (o o)
+--oOO--(_)--OOo--
+ Have a nice day!
+                    			`)
+					}
+
+				}
+			} else {
+				return fmt.Errorf("Can't find the host: %s%s%s in the list", red, hostName, reset)
+			}
 		}
 
 		command = cleanTheString(command, "keyboard")

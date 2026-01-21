@@ -11,6 +11,7 @@ import (
 
 func getSubMenuContent() []string {
 	return []string{
+		goback,
 		fmt.Sprintf("%s(s)%s %sssh%s", yellow, reset, BOLD, reset),
 		fmt.Sprintf("%s(w)%s Open in Browser", yellow, reset),
 		fmt.Sprintf("%s(o)%s sftp (os native)", yellow, reset),
@@ -55,6 +56,7 @@ func (m *baseModel) filterChoices() {
 // SSH shortcut handlers
 func (m *baseModel) handleSSHShortcuts(key string) (tea.Model, tea.Cmd) {
 	shortcuts := map[string]string{
+		"b": goback,
 		"s": fmt.Sprintf("%s(s)%s ssh", yellow, reset),
 		"w": fmt.Sprintf("%s(w)%s Open in Browser", yellow, reset),
 		"n": fmt.Sprintf("%s(n)%s Notes", yellow, reset),
