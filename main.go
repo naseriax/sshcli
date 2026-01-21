@@ -1178,6 +1178,7 @@ func (s *AllConfigs) navigateToNext(chosen string) error {
 			if !strings.Contains(err.Error(), "^C") {
 				return fmt.Errorf("failed to back to the parent ui")
 			} else {
+				log.Println(err)
 				return fmt.Errorf(`
       (o o)
 --oOO--(_)--OOo--
@@ -1204,6 +1205,7 @@ func (s *AllConfigs) navigateToNext(chosen string) error {
 
 		if err := s.InitUi(CleanedChosen); err != nil {
 			if !strings.Contains(err.Error(), "^C") {
+				log.Println(err)
 				return fmt.Errorf(`
       (o o)
 --oOO--(_)--OOo--
@@ -1679,7 +1681,8 @@ func (s *AllConfigs) DeleteSocksFromProfile(hostName string) error {
 }
 
 func (s *AllConfigs) updateHostNameInDatabase(oldhostname, newhostname string) error {
-	updateQuery := "UPDATE sshprofiles SET host = ? WHERE host = ?"
+
+	updateQuery := "UPDATE OR REPLACE sshprofiles SET host = ? WHERE host = ?"
 
 	tx, err := db.Begin()
 	if err != nil {
