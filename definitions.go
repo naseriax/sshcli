@@ -26,6 +26,7 @@ const (
 	hasUrl      = "🌐"
 	private     = "🙈"
 	hasSocks    = "🧦"
+	hasphrase   = "🔐"
 	goback      = "(b) ⬅️"
 )
 
@@ -35,7 +36,7 @@ var (
 	passAuthSupported = true
 	key               []byte
 	db                *sql.DB
-	legend            string = "🔑: password, 🌐: url, 📡: http proxy, 🚇: ssh tunnel, 🖍️ : note, 🧦:DynamicForward via Socks5"
+	legend            string = "🔑: password, 🌐: url, 📡: http proxy, 🚇: ssh tunnel, 🖍️ : note, 🧦:DynamicForward via Socks5, 🔐:  sshkey passphrase"
 	isSecure          bool
 	msg               = "Legend:\n" + legend + "\n\n"
 	port              = "22"
@@ -54,17 +55,18 @@ type (
 	}
 	AllConfigs []SSHConfig
 	SSHConfig  struct {
-		Host         string
-		HostName     string
-		User         string
-		Port         string
-		Proxy        string
-		Sockets      []string
-		DynamicSocks []string
-		IdentityFile string
-		Password     string
-		Folder       string
-		OtherAttribs []string
+		Host              string
+		HostName          string
+		User              string
+		Port              string
+		Proxy             string
+		Sockets           []string
+		DynamicSocks      []string
+		IdentityFile      string
+		Password          string
+		sshkey_passphrase string
+		Folder            string
+		OtherAttribs      []string
 	}
 	baseModel struct {
 		allChoices   []string

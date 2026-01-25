@@ -73,14 +73,15 @@ func initDB(filepath string) error {
 		}
 	}
 
-	// Add url column
+	// Add url and sshkey_passphrase columns to an existing database
 	rows, err := db.Query("PRAGMA table_info(sshprofiles)")
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer rows.Close()
 
-	var columnExists bool
+	urlColumnExists := false
+	passphraseColumnExists := false
 	for rows.Next() {
 		var (
 			cid      int
@@ -94,17 +95,28 @@ func initDB(filepath string) error {
 			log.Fatal(err)
 		}
 		if name == "url" {
-			columnExists = true
-			break
+			urlColumnExists = true
 		}
+		if name == "sshkey_passphrase" {
+			passphraseColumnExists = true
+		}
+
 	}
 
-	if !columnExists {
+	if !urlColumnExists {
 		_, err := db.Exec("ALTER TABLE sshprofiles ADD COLUMN url TEXT")
 		if err != nil {
 			log.Fatalf("failed to add url column: %v", err)
 		}
 		fmt.Println("Successfully added the 'url' column.")
+	}
+
+	if !passphraseColumnExists {
+		_, err := db.Exec("ALTER TABLE sshprofiles ADD COLUMN sshkey_passphrase TEXT")
+		if err != nil {
+			log.Fatalf("failed to add sshkey_passphrase column: %v", err)
+		}
+		fmt.Println("Successfully added the 'sshkey_passphrase' column.")
 	}
 
 	return nil
@@ -483,9 +495,9 @@ func getDefaultEditor() string {
 	return "vi"
 }
 
-func runSudoCommand(pass string) error {
+func runSudoCommand(pass, tool string) error {
 
-	cmd := exec.Command("sudo", "pbcopy")
+	cmd := exec.Command("sudo", tool)
 	cmd.Stdin = bytes.NewBufferString(pass)
 
 	cmd.Stdout = os.Stdout
@@ -510,6 +522,10 @@ func fixKeyPath(keyPath string) string {
 		keyPath = strings.ReplaceAll(keyPath, "~", "%USERPROFILE%")
 
 	} else {
+		if strings.HasPrefix(keyPath, "~") {
+			homeDir, _ := os.UserHomeDir()
+			keyPath = strings.ReplaceAll(keyPath, "~", homeDir)
+		}
 		if strings.Contains(keyPath, "/") && strings.Contains(keyPath, `\`) {
 			keyPath = strings.ReplaceAll(keyPath, `\`, "")
 		} else if strings.Contains(keyPath, `\`) {
@@ -562,6 +578,13 @@ func cleanTheString(s, mode string) string {
 	return s
 }
 
+func SetNullValue(hostname, column string) error {
+	q := fmt.Sprintf("UPDATE sshprofiles SET '%s' = ? WHERE host = '%s'", column, hostname)
+	_, err := db.Exec(q, nil)
+
+	return err
+}
+
 func cleanupDatabase() error {
 
 	allHosts, err := getHosts()
@@ -585,7 +608,7 @@ func cleanupDatabase() error {
 		return err
 	}
 
-	stmt, err := tx.Prepare(fmt.Sprintf("DELETE FROM sshprofiles WHERE host NOT IN (%s)", strings.Join(placeholders, ",")))
+	stmt, err := tx.Prepare(fmt.Sprintf("DELETE FROM sshprofiles WHERE host NOT IN ('%s')", strings.Join(placeholders, ",")))
 	if err != nil {
 		return err
 	}
@@ -1073,6 +1096,21 @@ func (s *AllConfigs) getItems(folder string) []string {
 			}
 		}
 
+		var err error
+		if (*s)[i].sshkey_passphrase, err = s.readAndDecryptFromDB(host.Host, "sshkey_passphrase", true); err != nil {
+			if !strings.Contains(err.Error(), "no sshkey_passphrase found for host") {
+				log.Printf("failed to read sshkey passphrase for host: %s: %s", host.Host, err)
+			}
+			(*s)[i].sshkey_passphrase = ""
+		}
+
+		if (*s)[i].Password, err = s.readAndDecryptFromDB(host.Host, "password", true); err != nil {
+			if !strings.Contains(err.Error(), "no password found for host") {
+				log.Printf("failed to read password for host: %s", host.Host)
+			}
+			(*s)[i].Password = ""
+		}
+
 		item := fmt.Sprintf("%s %v%-*s >%v ", sshIcon, green, maxHostLen, host.Host, reset)
 
 		if len(host.User) > 0 {
@@ -1087,7 +1125,7 @@ func (s *AllConfigs) getItems(folder string) []string {
 		if len(item) > maxRowLength {
 			maxRowLength = len(item)
 		}
-		connectionItems[item] = host
+		connectionItems[item] = (*s)[i]
 
 	}
 
@@ -1129,8 +1167,14 @@ func (s *AllConfigs) getItems(folder string) []string {
 			item += "(  )"
 		}
 
-		if val, _ := s.readAndDecryptPassFromDB(host.Host, false); val == "ok" {
+		if len(host.Password) > 0 {
 			item += "(" + hasPassword + ")"
+		} else {
+			item += "(  )"
+		}
+
+		if len(host.sshkey_passphrase) > 0 {
+			item += "(" + hasphrase + ")"
 		} else {
 			item += "(  )"
 		}
@@ -1973,22 +2017,22 @@ func (s *AllConfigs) Connect(chosen string) error {
 			return err
 		}
 
+		var h *SSHConfig
+		if h = s.extractHost(hostName); h == nil {
+			return fmt.Errorf("Can't find the host: %s%s%s in the list", red, hostName, reset)
+		}
+
 		if command == goback {
-			if h := s.extractHost(hostName); h != nil {
-				if err := s.InitUi(h.Folder); err != nil {
-					if !strings.Contains(err.Error(), "^C") {
-						return fmt.Errorf("failed to back to the parent ui")
-					} else {
-						return fmt.Errorf(`
+			if err := s.InitUi(h.Folder); err != nil {
+				if !strings.Contains(err.Error(), "^C") {
+					return fmt.Errorf("failed to back to the parent ui")
+				} else {
+					return fmt.Errorf(`
       (o o)
 --oOO--(_)--OOo--
  Have a nice day!
                     			`)
-					}
-
 				}
-			} else {
-				return fmt.Errorf("Can't find the host: %s%s%s in the list", red, hostName, reset)
 			}
 		}
 
@@ -2025,36 +2069,42 @@ func (s *AllConfigs) Connect(chosen string) error {
 				if len(url) > 0 {
 					return openBrowser(url)
 				} else {
-					if h := s.extractHost(hostName); h != nil {
-						return openBrowser("https://" + (*h).HostName)
-					}
+					return openBrowser("https://" + (*h).HostName)
 				}
 			}
 		} else if strings.EqualFold(command, "Reveal Password") {
-			password, err := s.readAndDecryptPassFromDB(hostName, true)
-			if err != nil {
-				if strings.Contains(err.Error(), "no password") {
-					password = ""
-				} else {
-
-					return err
-				}
-			}
-			if len(password) == 0 {
+			if len(h.Password) == 0 {
 				fmt.Println("No password found.")
 			} else {
-
 				if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
-					err := runSudoCommand(password)
+					err := runSudoCommand(h.Password, "pbcopy")
 					if err != nil {
 						fmt.Printf("Error executing sudo command: %v\n", err)
 					}
 					fmt.Println("Password for", hostName, "has been copied to the clipboard.")
 				} else {
-					fmt.Println("Password for", hostName, ":", password)
+					fmt.Println("Password for", hostName, ":", h.Password)
 				}
 			}
 
+		} else if strings.EqualFold(command, "Reveal sshkey passphrase") {
+			if len(h.sshkey_passphrase) == 0 {
+				fmt.Println("No sshkey passphrase found.")
+			} else {
+				if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
+					err := runSudoCommand(h.sshkey_passphrase, "pbcopy")
+					if err != nil {
+						fmt.Printf("Error executing sudo command: %v\n", err)
+					}
+					fmt.Println("sshkey passphrase for", hostName, "has been copied to the clipboard.")
+				} else {
+					fmt.Println("sshkey passphrase for", hostName, ":", h.sshkey_passphrase)
+				}
+			}
+		} else if strings.EqualFold(command, "Remove sshkey passphrase") {
+			if err := SetNullValue(hostName, "sshkey_passphrase"); err != nil {
+				return fmt.Errorf("failed to remove ssh-key passphrase for host %s: %w", hostName, err)
+			}
 		} else if strings.EqualFold(command, "Set Socks Tunnel") {
 			if err := s.AddSocksToProfile(hostName); err != nil {
 				return err
@@ -2085,131 +2135,114 @@ func (s *AllConfigs) Connect(chosen string) error {
 
 			passString := string(bytePassword)
 
-			if err := encryptAndPushPassToDB(hostName, passString); err != nil {
-				return fmt.Errorf("failed to push the password to db in set password for the host %v:%v", hostName, err)
+			h.Password = passString
+
+			if err := encryptAndPushToDB(hostName, "password", passString); err != nil {
+				return fmt.Errorf("failed to push password to db for host %v:%v", hostName, err)
+			}
+		} else if strings.EqualFold(command, "Set sshkey passphrase") {
+			fmt.Print("\nEnter your ssh-key passphrase: ")
+			bytePassword, err := term.ReadPassword(uintptr(syscall.Stdin))
+			fmt.Println()
+			if err != nil {
+				return fmt.Errorf("error reading passphrase: %w", err)
+			}
+
+			passString := string(bytePassword)
+			h.sshkey_passphrase = passString
+
+			if err := encryptAndPushToDB(hostName, "sshkey_passphrase", passString); err != nil {
+				return fmt.Errorf("failed to push the passphrase to db for host %v:%v", hostName, err)
 			}
 		} else if strings.EqualFold(command, "ping") {
-			if h := s.extractHost(hostName); h != nil {
-				cmd := *exec.Command(strings.ToLower(command), h.HostName)
-				cmd.Stdin = os.Stdin
-				cmd.Stdout = os.Stdout
-				cmd.Stderr = os.Stderr
-				cmd.Run()
-			} else {
-				return fmt.Errorf("error extracting host: %s", hostName)
-			}
+			cmd := *exec.Command(strings.ToLower(command), h.HostName)
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			cmd.Run()
 
 		} else if strings.EqualFold(command, "tcping") {
 			if err := checkShellCommands(strings.ToLower(command)); err != nil {
 				log.Println("tcping is not installed. install by checking https://github.com/pouriyajamshidi/tcping")
 				fmt.Println("tcping is not installed. install by checking https://github.com/pouriyajamshidi/tcping")
 			} else {
-				if h := s.extractHost(hostName); h != nil {
-
-					if h.Port != "" {
-						port = h.Port
-					}
-					cmd := *exec.Command(strings.ToLower(command), h.HostName, port)
-					cmd.Stdin = os.Stdin
-					cmd.Stdout = os.Stdout
-					cmd.Stderr = os.Stderr
-					cmd.Run()
-				} else {
-					return fmt.Errorf("error extracting host: %s", hostName)
+				if h.Port != "" {
+					port = h.Port
 				}
+				cmd := *exec.Command(strings.ToLower(command), h.HostName, port)
+				cmd.Stdin = os.Stdin
+				cmd.Stdout = os.Stdout
+				cmd.Stderr = os.Stderr
+				cmd.Run()
 			}
 		} else if strings.EqualFold(command, "ssh-copy-id") {
 			if err := checkShellCommands("ssh-copy-id"); err != nil {
 				fmt.Println(err.Error())
 				return fmt.Errorf("ssh-copy-id command not found: %w", err)
 			}
+			if len(h.IdentityFile) == 0 {
+				fmt.Println("No identity file specified.")
+				fmt.Println("using the default ~/.ssh/id_rsa file")
+				home, _ := os.UserHomeDir()
+				h.IdentityFile = filepath.Join(home, ".ssh", "id_rsa")
+			}
 
-			if h := s.extractHost(hostName); h != nil {
-				if len(h.IdentityFile) == 0 {
-					fmt.Println("No identity file specified.")
-					fmt.Println("using the default ~/.ssh/id_rsa file")
-					home, _ := os.UserHomeDir()
-					h.IdentityFile = filepath.Join(home, ".ssh", "id_rsa")
-				}
+			if h.Port == "" {
+				h.Port = "22"
+			}
 
-				if h.Port == "" {
-					h.Port = "22"
-				}
+			h.IdentityFile = fixKeyPath(h.IdentityFile)
 
-				if strings.HasPrefix(h.IdentityFile, "~") {
-					homeDir, _ := os.UserHomeDir()
-					h.IdentityFile = strings.ReplaceAll(h.IdentityFile, "~", homeDir)
-				}
-
-				h.IdentityFile = fixKeyPath(h.IdentityFile)
-
-				password, err := s.readAndDecryptPassFromDB(hostName, true)
-				if err != nil {
-					if strings.Contains(err.Error(), "no password") {
-						password = ""
+			cmd := *exec.Command("ssh-copy-id", "-i", h.IdentityFile, "-p", h.Port, h.User+"@"+h.HostName)
+			if passAuthSupported {
+				if len(h.sshkey_passphrase) > 0 {
+					if err := checkShellCommands("ssh-add"); err != nil {
+						log.Println("ssh-add is not available")
 					} else {
-
-						return err
+						agentCmd := *exec.Command("sshpass", "-p", h.sshkey_passphrase, "-P", "passphrase", "ssh-add", h.IdentityFile)
+						agentCmd.Stdin = os.Stdin
+						agentCmd.Stdout = os.Stdout
+						agentCmd.Stderr = os.Stderr
+						agentCmd.Run()
 					}
 				}
-
-				cmd := *exec.Command("sshpass", "-p", password, "ssh-copy-id", "-i", h.IdentityFile, "-p", h.Port, h.User+"@"+h.HostName)
-
-				if len(password) == 0 {
+				if len(h.Password) > 0 {
+					cmd = *exec.Command("sshpass", "-p", h.Password, "ssh-copy-id", "-i", h.IdentityFile, "-p", h.Port, h.User+"@"+h.HostName)
+				} else {
 					fmt.Printf("There is no password stored for this profile\n")
-					cmd = *exec.Command("ssh-copy-id", "-i", h.IdentityFile, "-p", h.Port, h.User+"@"+h.HostName)
 				}
-
-				cmd.Stdin = os.Stdin
-				cmd.Stdout = os.Stdout
-				cmd.Stderr = os.Stderr
-				cmd.Run()
-			} else {
-				return fmt.Errorf("error extracting host: %s", hostName)
 			}
+
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			cmd.Run()
 
 		} else if strings.EqualFold(command, "sftp (text UI)") {
-			if h := s.extractHost(hostName); h != nil {
-				if h.Port == "" {
-					h.Port = "22"
-				}
-				if strings.HasPrefix(h.IdentityFile, "~") {
-					homeDir, _ := os.UserHomeDir()
-					h.IdentityFile = strings.Replace(h.IdentityFile, "~", homeDir, -1)
-				}
-
-				var password string
-
-				if err := checkShellCommands("sshpass"); err != nil {
-					log.Println("sshpass is not installed, only key authentication is supported")
-				} else {
-
-					password, err = s.readAndDecryptPassFromDB(hostName, true)
-					if err != nil {
-						if strings.Contains(err.Error(), "no password") {
-							password = ""
-						} else {
-
-							return err
-						}
-					}
-				}
-
-				err = INIT_SFTP(h.Host, h.HostName, h.User, password, h.Port, h.IdentityFile)
-				if err != nil {
-					if strings.Contains(err.Error(), "methods [none], no supported methods remain") {
-						fmt.Printf("\n - Can't authenticate to the server. no password or key provided. \n\n")
-					} else if strings.Contains(err.Error(), "methods [none password], no supported methods remain") {
-						fmt.Printf("\n - Can't authenticate to the server. the provided password is wrong and no key provided. \n\n")
-					} else {
-						fmt.Println(err.Error())
-					}
-					return fmt.Errorf("error initializing SFTP: %w", err)
-				}
-
-			} else {
-				return fmt.Errorf("error extracting host: %s", hostName)
+			if h.Port == "" {
+				h.Port = "22"
 			}
+			if strings.HasPrefix(h.IdentityFile, "~") {
+				homeDir, _ := os.UserHomeDir()
+				h.IdentityFile = strings.ReplaceAll(h.IdentityFile, "~", homeDir)
+			}
+
+			err = INIT_SFTP(h.Host, h.HostName, h.User, h.Password, h.Port, h.IdentityFile, h.sshkey_passphrase)
+			if err != nil {
+				if strings.Contains(err.Error(), "methods [none], no supported methods remain") {
+					errMsg := "\n - Can't authenticate to the server. no password or key provided. \n\n"
+					fmt.Println(errMsg)
+					log.Println(errMsg)
+				} else if strings.Contains(err.Error(), "methods [none password], no supported methods remain") {
+					errMsg := "\n - Can't authenticate to the server. the provided password is wrong and no key provided. \n\n"
+					fmt.Println(errMsg)
+					log.Println(errMsg)
+				} else {
+					fmt.Println(err.Error())
+				}
+				return fmt.Errorf("error initializing SFTP: %w", err)
+			}
+
 		} else {
 			if strings.EqualFold(command, "set ssh tunnel") {
 				if err := s.AddForwardSocketToProfile(hostName); err != nil {
@@ -2244,46 +2277,41 @@ func (s *AllConfigs) Connect(chosen string) error {
 			cmd := *exec.Command(strings.ToLower(command), hostName)
 			password := `''`
 
-			if h := s.extractHost(hostName); h != nil {
-				if len(h.Proxy) > 0 {
-					tool := "nc"
-					if runtime.GOOS != "darwin" {
-						tool = "ncat"
-					}
-					if err := checkShellCommands(tool); err != nil {
-						return fmt.Errorf("%s is not installed on your machine. remove the http_proxy from the profile to connect", tool)
-					}
+			if len(h.Proxy) > 0 {
+				tool := "nc"
+				if runtime.GOOS != "darwin" {
+					tool = "ncat"
 				}
-				if err := checkShellCommands("sshpass"); err != nil {
-					log.Println("sshpass is not installed!")
-					passAuthSupported = false
-
-				} else if passAuthSupported {
-					password, err = s.readAndDecryptPassFromDB(hostName, true)
-					if err != nil {
-						if strings.Contains(err.Error(), "no password") {
-							password = ""
-						} else {
-
-							return err
-						}
-					}
-
-					if password != "" {
-						cmd = *exec.Command("sshpass", "-p", password, strings.ToLower(command), "-o", "StrictHostKeyChecking=no", hostName)
-					} else {
-						cmd = *exec.Command(strings.ToLower(command), "-o", "StrictHostKeyChecking=no", hostName)
-					}
+				if err := checkShellCommands(tool); err != nil {
+					return fmt.Errorf("%s is not installed on your machine. remove the http_proxy from the profile to connect", tool)
 				}
-
-				cmd.Stdin = os.Stdin
-				cmd.Stdout = os.Stdout
-				cmd.Stderr = os.Stderr
-				cmd.Run()
-
-			} else {
-				return fmt.Errorf("error extracting host: %s", hostName)
 			}
+
+			h.IdentityFile = fixKeyPath(h.IdentityFile)
+
+			if passAuthSupported {
+				if len(h.sshkey_passphrase) > 0 {
+					if err := checkShellCommands("ssh-add"); err != nil {
+						log.Println("ssh-add is not available")
+					} else {
+						agentCmd := *exec.Command("sshpass", "-p", h.sshkey_passphrase, "-P", "passphrase", "ssh-add", h.IdentityFile)
+						agentCmd.Stdin = os.Stdin
+						agentCmd.Stdout = os.Stdout
+						agentCmd.Stderr = os.Stderr
+						agentCmd.Run()
+					}
+				}
+				if len(h.Password) > 0 {
+					cmd = *exec.Command("sshpass", "-p", password, strings.ToLower(command), "-o", "StrictHostKeyChecking=no", hostName)
+				} else {
+					fmt.Printf("There is no password stored for this profile\n")
+				}
+			}
+
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			cmd.Run()
 		}
 	case "console":
 
@@ -2537,6 +2565,11 @@ func main() {
 	if err != nil {
 		fmt.Println(err.Error())
 		return
+	}
+
+	if err := checkShellCommands("sshpass"); err != nil {
+		passAuthSupported = false
+		log.Println("sshpass is not installed, only key authentication is supported")
 	}
 
 	//########################################## ENC #####################################################

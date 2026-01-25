@@ -370,20 +370,29 @@ func extractFilename(text string) string {
 	return filename
 }
 
-func publicKeyFile(file string) ssh.AuthMethod {
+func publicKeyFile(file string, passphrase string) ssh.AuthMethod {
 	buffer, err := os.ReadFile(file)
 	if err != nil {
 		return nil
 	}
 
-	key, err := ssh.ParsePrivateKey(buffer)
-	if err != nil {
-		return nil
+	var key ssh.Signer
+	if len(strings.TrimSpace(passphrase)) > 0 {
+		key, err = ssh.ParsePrivateKeyWithPassphrase(buffer, []byte(passphrase))
+		if err != nil {
+			return nil
+		}
+	} else {
+		key, err = ssh.ParsePrivateKey(buffer)
+		if err != nil {
+			return nil
+		}
 	}
+
 	return ssh.PublicKeys(key)
 }
 
-func opentheGates(host, user, key, password string) (*sftp.Client, *ssh.Client, error) {
+func opentheGates(host, user, keyfile, password, passphrase string) (*sftp.Client, *ssh.Client, error) {
 	config := &ssh.ClientConfig{
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
@@ -394,8 +403,8 @@ func opentheGates(host, user, key, password string) (*sftp.Client, *ssh.Client, 
 		authMethods = append(authMethods, ssh.Password(password))
 	}
 
-	if key != "" && key != " " {
-		authMethods = append(authMethods, publicKeyFile(key))
+	if len(strings.TrimSpace(keyfile)) > 0 {
+		authMethods = append(authMethods, publicKeyFile(keyfile, passphrase))
 	}
 
 	config.User = user
@@ -644,8 +653,8 @@ func createStatusBar(localFS, remoteFS *FileSystem) *tview.TextView {
 	return status
 }
 
-func INIT_SFTP(hostId, host, user, password, port, key string) error {
-	sftpClient, sshClient, err := opentheGates(host+":"+port, user, key, password)
+func INIT_SFTP(hostId, host, user, password, port, key, passphrase string) error {
+	sftpClient, sshClient, err := opentheGates(host+":"+port, user, key, password, passphrase)
 	if err != nil {
 		log.Printf("Failed to create SFTP client: %v\n", err)
 		return err

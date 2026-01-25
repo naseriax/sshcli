@@ -25,11 +25,14 @@ func getSubMenuContent() []string {
 		fmt.Sprintf("%s(5)%s Set Socks Tunnel", yellow, reset),
 		fmt.Sprintf("%s(u)%s Set URL", yellow, reset),
 		fmt.Sprintf("%s(f)%s Set Folder", yellow, reset),
+		fmt.Sprintf("%s(8)%s Set sshkey passphrase", yellow, reset),
 		fmt.Sprintf("%s(n)%s %sNotes%s", yellow, reset, BOLD, reset),
 		fmt.Sprintf("%s(r)%s Reveal Password", yellow, reset),
+		fmt.Sprintf("%s(y)%s Reveal sshkey passphrase", yellow, reset),
 		fmt.Sprintf("%s(X)%s Remove SSH Tunnel", yellow, reset),
 		fmt.Sprintf("%s(%%)%s Remove Socks Tunnel", yellow, reset),
 		fmt.Sprintf("%s(H)%s Remove http proxy", yellow, reset),
+		fmt.Sprintf("%s(*)%s Remove sshkey passphrase", yellow, reset),
 		fmt.Sprintf("%s(R)%s Remove Profile", yellow, reset),
 		goback,
 	}
@@ -76,7 +79,10 @@ func (m *baseModel) handleSSHShortcuts(key string) (tea.Model, tea.Cmd) {
 		"X": fmt.Sprintf("%s(X)%s Remove SSH Tunnel", yellow, reset),
 		"f": fmt.Sprintf("%s(f)%s Set Folder", yellow, reset),
 		"k": fmt.Sprintf("%s(k)%s ssh-copy-id", yellow, reset),
+		"8": fmt.Sprintf("%s(8)%s Set sshkey passphrase", yellow, reset),
+		"*": fmt.Sprintf("%s(*)%s Remove sshkey passphrase", yellow, reset),
 		"r": fmt.Sprintf("%s(r)%s Reveal Password", yellow, reset),
+		"y": fmt.Sprintf("%s(y)%s Reveal sshkey passphrase", yellow, reset),
 	}
 
 	if choice, exists := shortcuts[key]; exists {

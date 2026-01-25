@@ -13,9 +13,9 @@ import (
 	"strings"
 )
 
-func encryptAndPushPassToDB(hostname, password string) error {
+func encryptAndPushToDB(hostname, column, password string) error {
 	if len(password) == 0 {
-		return fmt.Errorf("password is empty")
+		return fmt.Errorf("%s is empty", column)
 	}
 
 	if len(hostname) == 0 {
@@ -24,55 +24,54 @@ func encryptAndPushPassToDB(hostname, password string) error {
 
 	encryptedString, err := encrypt([]byte(password))
 	if err != nil {
-		err = fmt.Errorf("error encrypting password: %v", err)
+		err = fmt.Errorf("error encrypting %s: %v", column, err)
 		return err
 	}
 
 	tx, err := db.Begin()
 	if err != nil {
-		return fmt.Errorf("failed to begin the db transaction for password insertion:%v", err)
+		return fmt.Errorf("failed to begin the db transaction for %s insertion:%w", column, err)
 	}
 
-	stmt, err := tx.Prepare("INSERT INTO sshprofiles(host,password) VALUES(?,?) ON CONFLICT(host) DO UPDATE SET password = excluded.password;")
+	stmt, err := tx.Prepare(fmt.Sprintf("INSERT INTO sshprofiles(host,%s) VALUES(?,?) ON CONFLICT(host) DO UPDATE SET %s = excluded.%s;", column, column, column))
 	if err != nil {
-		return fmt.Errorf("failed to prepare the db for password insertion:%v", err)
+		return fmt.Errorf("failed to prepare the db for %s insertion:%w", column, err)
 	}
 	defer stmt.Close()
 
 	_, err = stmt.Exec(hostname, encryptedString)
 	if err != nil {
-		return fmt.Errorf("failed to insert the password for the host %v: %v", hostname, err)
+		return fmt.Errorf("failed to insert the %s for the host %v: %w", column, hostname, err)
 	}
 
-	log.Println("\nPassword has been successfully added to the password database!")
+	log.Printf("%s has been successfully added to the database!\n", column)
 	return tx.Commit()
 }
 
-func (s *AllConfigs) readAndDecryptPassFromDB(host string, needPass bool) (string, error) {
+func (s *AllConfigs) readAndDecryptFromDB(host, column string, needPass bool) (string, error) {
 	var password string
 
-	query := "SELECT password FROM sshprofiles WHERE host = ? AND password IS NOT NULL"
+	query := fmt.Sprintf("SELECT %s FROM sshprofiles WHERE host = ? AND %s IS NOT NULL", column, column)
 
 	row := db.QueryRow(query, host)
 	err := row.Scan(&password)
 
 	if err == sql.ErrNoRows {
-		return "", fmt.Errorf("no password found for host: %s", host)
+		return "", fmt.Errorf("no %s found for host: %s", column, host)
 	} else if err != nil {
-		return "", fmt.Errorf("read password query failed: %w", err)
+		return "", fmt.Errorf("read %s query failed: %w", column, err)
 	}
 
 	if needPass {
 		clearTextPassword, err := decrypt(password)
 		if err != nil {
-			return `''`, fmt.Errorf("error decrypting password: %v", err)
+			return `''`, fmt.Errorf("error decrypting %s: %w", column, err)
 		}
 
 		return clearTextPassword, nil
 	} else {
 		return "ok", nil
 	}
-
 }
 
 func loadOrGenerateKey() ([]byte, error) {
