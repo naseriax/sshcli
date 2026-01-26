@@ -2275,7 +2275,6 @@ func (s *AllConfigs) Connect(chosen string) error {
 			}
 
 			cmd := *exec.Command(strings.ToLower(command), hostName)
-			password := `''`
 
 			if len(h.Proxy) > 0 {
 				tool := "nc"
@@ -2287,10 +2286,12 @@ func (s *AllConfigs) Connect(chosen string) error {
 				}
 			}
 
-			h.IdentityFile = fixKeyPath(h.IdentityFile)
+			if len(h.IdentityFile) > 0 {
+				h.IdentityFile = fixKeyPath(h.IdentityFile)
+			}
 
 			if passAuthSupported {
-				if len(h.sshkey_passphrase) > 0 {
+				if len(h.sshkey_passphrase) > 0 && len(h.IdentityFile) > 0 {
 					if err := checkShellCommands("ssh-add"); err != nil {
 						log.Println("ssh-add is not available")
 					} else {
@@ -2302,7 +2303,7 @@ func (s *AllConfigs) Connect(chosen string) error {
 					}
 				}
 				if len(h.Password) > 0 {
-					cmd = *exec.Command("sshpass", "-p", password, strings.ToLower(command), "-o", "StrictHostKeyChecking=no", hostName)
+					cmd = *exec.Command("sshpass", "-p", h.Password, strings.ToLower(command), "-o", "StrictHostKeyChecking=no", hostName)
 				} else {
 					fmt.Printf("There is no password stored for this profile\n")
 				}
