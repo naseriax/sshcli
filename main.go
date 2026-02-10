@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net"
+	_ "net/http/pprof"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -22,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/charmbracelet/x/term"
 	_ "modernc.org/sqlite"
@@ -551,6 +553,13 @@ func fixKeyPath(keyPath string) string {
 	return keyPath
 }
 
+func timer(name string) func() {
+	start := time.Now()
+	return func() {
+		fmt.Printf("%s took %v\n", name, time.Since(start))
+	}
+}
+
 func cleanTheString(s, mode string) string {
 
 	// remove colors
@@ -586,41 +595,63 @@ func SetNullValue(hostname, column string) error {
 }
 
 func cleanupDatabase() error {
-
 	allHosts, err := getHosts()
 	if err != nil {
-		fmt.Println(err)
+		return err
 	}
-
 	allHosts.removeItemFromStruct("*")
-	placeholders := make([]string, len(*allHosts))
-	for i := range *allHosts {
-		placeholders[i] = "?"
-	}
 
+	placeholders := make([]string, len(*allHosts))
 	args := make([]any, len(*allHosts))
 	for i, v := range *allHosts {
+		placeholders[i] = "?"
 		args[i] = v.Host
+	}
+
+	querySelection := fmt.Sprintf("SELECT host FROM sshprofiles WHERE host NOT IN (%s)", strings.Join(placeholders, ","))
+	rows, err := db.Query(querySelection, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	var targets []string
+	for rows.Next() {
+		var h string
+		if err := rows.Scan(&h); err == nil {
+			fmt.Printf(" - %s\n", h)
+			targets = append(targets, h)
+		}
+	}
+
+	if len(targets) == 0 {
+		fmt.Println("All records are already in order!")
+		return nil
+	}
+
+	fmt.Printf("\nAre you sure you want to delete these %d records from ~/.ssh/sshcli.db file? (y/N): ", len(targets))
+	var response string
+	fmt.Scanln(&response)
+
+	if strings.ToLower(response) != "y" {
+		fmt.Println("Cleanup aborted.")
+		return nil
 	}
 
 	tx, err := db.Begin()
 	if err != nil {
 		return err
 	}
+	defer tx.Rollback()
 
-	stmt, err := tx.Prepare(fmt.Sprintf("DELETE FROM sshprofiles WHERE host NOT IN ('%s')", strings.Join(placeholders, ",")))
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-
-	result, err := stmt.Exec(args...)
+	queryDelete := fmt.Sprintf("DELETE FROM sshprofiles WHERE host NOT IN (%s)", strings.Join(placeholders, ","))
+	result, err := tx.Exec(queryDelete, args...)
 	if err != nil {
 		return err
 	}
 
 	rowsDeleted, _ := result.RowsAffected()
-	fmt.Printf("Deleted %d rows.\n", rowsDeleted)
+	fmt.Printf("Successfully deleted %d rows.\n", rowsDeleted)
 
 	return tx.Commit()
 }
@@ -951,30 +982,31 @@ func getHosts() (*AllConfigs, error) {
 	return allHosts, nil
 }
 
-func (s *AllConfigs) getFolderList() ([]string, error) {
+func (s *AllConfigs) getFolderList() (map[string]string, error) {
+	folderhost := map[string]string{}
 
-	var folderlist []string
-
-	query := "SELECT DISTINCT folder FROM sshprofiles WHERE folder IS NOT NULL;"
+	query := "SELECT host,folder FROM sshprofiles WHERE folder IS NOT NULL;"
 	rows, err := db.Query(query)
 	if err != nil {
-		return folderlist, fmt.Errorf("error querying folders: %w", err)
+		return folderhost, fmt.Errorf("error querying folders: %w", err)
 	}
 	defer rows.Close()
 
 	for rows.Next() {
 		var folder string
-		if err := rows.Scan(&folder); err != nil {
+		var host string
+		if err := rows.Scan(&host, &folder); err != nil {
 			log.Println("Error scanning folder:", err)
 			continue
 		}
-		folderlist = append(folderlist, folder)
+		folderhost[host] = folder
 	}
 
 	if err := rows.Err(); err != nil {
-		return folderlist, fmt.Errorf("error iterating over folders: %w", err)
+		return folderhost, fmt.Errorf("error iterating over folders: %w", err)
 	}
-	return folderlist, nil
+
+	return folderhost, nil
 }
 
 func (s *AllConfigs) readUrlFromDb(host string) (string, error) {
@@ -1056,23 +1088,37 @@ func (s *AllConfigs) getItems(folder string) []string {
 	maxHostLen += 1
 	maxUserLen += 1
 
-	if folder == "" {
+	folderhost, err := s.getFolderList()
+	if err != nil {
+		log.Println("Error getting folder list:", err)
+	}
 
-		folderlist, err := s.getFolderList()
-		if err != nil {
-			log.Println("Error getting folder list:", err)
-		}
+	folderlist := []string{}
+	for _, f := range folderhost {
+		folderlist = append(folderlist, f)
+	}
+
+	slices.Sort(folderlist)
+
+	folderlist = slices.Compact(folderlist)
+
+	if folder == "" {
+		// for _, f := range folderhost {
+		// 	for _, host := range *s {
+		// 		if host.Folder == f {
+		// 			items = append(items, fmt.Sprintf("%s %s %s%s", folderIcon, magenta, f, reset))
+		// 			break
+		// 		}
+		// 	}
+		// }
 
 		for _, f := range folderlist {
-			for _, host := range *s {
-				if host.Folder == f {
-					items = append(items, fmt.Sprintf("%s %s %s%s", folderIcon, magenta, f, reset))
-					break
-				}
+			if f != "NULL" && f != "" {
+				items = append(items, fmt.Sprintf("%s %s %s%s", folderIcon, magenta, f, reset))
 			}
 		}
 
-		sort.Strings(items)
+		slices.Sort(items)
 	}
 
 	connectionItems := map[string]SSHConfig{}
@@ -1090,8 +1136,10 @@ func (s *AllConfigs) getItems(folder string) []string {
 		}
 
 		if folder == "" {
-			if f, err := readFolderForHostFromDB(host.Host); (err == nil) && (f != "NULL" && f != "") {
-				(*s)[i].Folder = f
+
+			f := folderhost[host.Host]
+			if f != "NULL" && f != "" {
+				(*s)[i].Folder = folderhost[host.Host]
 				continue
 			}
 		}
@@ -1260,6 +1308,7 @@ func (s *AllConfigs) navigateToNext(chosen string) error {
 		}
 	} else {
 		if chosen == sshIcon+" New SSH Profile" {
+			doConfigBackup("all")
 			if err := s.editProfile("", "new"); err != nil {
 				return fmt.Errorf("failed to create a new profile: %w", err)
 			}
@@ -1277,9 +1326,15 @@ func (s *AllConfigs) navigateToNext(chosen string) error {
 
 func (s *AllConfigs) moveToFolder(host string) error {
 
-	FolderList, err := s.getFolderList()
+	folderhost, err := s.getFolderList()
 	if err != nil {
 		log.Println("failed to retrieve the folder list:%w", err)
+	}
+
+	FolderList := make([]string, 0, len(folderhost))
+
+	for _, v := range folderhost {
+		FolderList = append(FolderList, v)
 	}
 
 	FolderList = append(FolderList, "New Folder")
@@ -1429,6 +1484,7 @@ func (s *AllConfigs) updateNotesAndPushToDb(host string) error {
 	}
 
 	if fileInfoAfter.ModTime().After(fileInfoBefore.ModTime()) {
+		doConfigBackup("all")
 
 		content, err := os.ReadFile(tmpfile.Name())
 		if err != nil {
@@ -2039,6 +2095,7 @@ func (s *AllConfigs) Connect(chosen string) error {
 		command = cleanTheString(command, "keyboard")
 
 		if strings.EqualFold(command, "Set Folder") {
+			doConfigBackup("all")
 			if err := s.moveToFolder(hostName); err != nil {
 				return fmt.Errorf("Failed to set folder for %s: %w", hostName, err)
 			}
@@ -2047,10 +2104,12 @@ func (s *AllConfigs) Connect(chosen string) error {
 				log.Println(err)
 			}
 		} else if strings.EqualFold(command, "Duplicate/Edit Profile") {
+			doConfigBackup("all")
 			if err := s.editProfile(hostName, "edit"); err != nil {
 				return err
 			}
 		} else if strings.EqualFold(command, "Remove Profile") {
+			doConfigBackup("all")
 			s.removeItemFromStruct(hostName)
 			if err := s.removefromDatabase(hostName); err != nil {
 				return fmt.Errorf("failed to remove %s from database: %w", hostName, err)
@@ -2059,7 +2118,7 @@ func (s *AllConfigs) Connect(chosen string) error {
 				return fmt.Errorf("error adding/updating profile: %w", err)
 			}
 		} else if strings.EqualFold(command, "Set URL") {
-
+			doConfigBackup("all")
 			if err := s.writeUrlDb(hostName); err != nil {
 				return fmt.Errorf("failed to push the url to db for the host %s:%w", hostName, err)
 			}
@@ -2102,30 +2161,37 @@ func (s *AllConfigs) Connect(chosen string) error {
 				}
 			}
 		} else if strings.EqualFold(command, "Remove sshkey passphrase") {
+			doConfigBackup("all")
 			if err := SetNullValue(hostName, "sshkey_passphrase"); err != nil {
 				return fmt.Errorf("failed to remove ssh-key passphrase for host %s: %w", hostName, err)
 			}
 		} else if strings.EqualFold(command, "Set Socks Tunnel") {
+			doConfigBackup("all")
 			if err := s.AddSocksToProfile(hostName); err != nil {
 				return err
 			}
 		} else if strings.EqualFold(command, "Set http proxy") {
+			doConfigBackup("all")
 			if err := s.AddProxyToProfile(hostName); err != nil {
 				return err
 			}
 		} else if strings.EqualFold(command, "Remove http proxy") {
+			doConfigBackup("all")
 			if err := s.DeleteProxyFromProfile(hostName); err != nil {
 				return err
 			}
 		} else if strings.EqualFold(command, "Remove SSH Tunnel") {
+			doConfigBackup("all")
 			if err := s.DeleteFordwardSocketFromProfile(hostName); err != nil {
 				return err
 			}
 		} else if strings.EqualFold(command, "Remove Socks Tunnel") {
+			doConfigBackup("all")
 			if err := s.DeleteSocksFromProfile(hostName); err != nil {
 				return err
 			}
 		} else if strings.EqualFold(command, "Set Password") {
+			doConfigBackup("all")
 			fmt.Print("\nEnter password: ")
 			bytePassword, err := term.ReadPassword(uintptr(syscall.Stdin))
 			fmt.Println()
@@ -2141,6 +2207,7 @@ func (s *AllConfigs) Connect(chosen string) error {
 				return fmt.Errorf("failed to push password to db for host %v:%v", hostName, err)
 			}
 		} else if strings.EqualFold(command, "Set sshkey passphrase") {
+			doConfigBackup("all")
 			fmt.Print("\nEnter your ssh-key passphrase: ")
 			bytePassword, err := term.ReadPassword(uintptr(syscall.Stdin))
 			fmt.Println()
@@ -2582,8 +2649,6 @@ func main() {
 		return
 	}
 
-	doConfigBackup("all")
-
 	allHosts, err := getHosts()
 
 	if *action != "" {
@@ -2593,11 +2658,13 @@ func main() {
 		} else {
 			switch strings.ToLower(*action) {
 			case "add":
+				doConfigBackup("all")
 				if err := addConsoleConfig(consoleProfile); err != nil {
 					fmt.Println("Error adding console profile:", err)
 					return
 				}
 			case "remove":
+				doConfigBackup("all")
 				if err := removeConsoleConfig(consoleProfile.Host); err != nil {
 					fmt.Println("Error removing console profile:", err)
 					return

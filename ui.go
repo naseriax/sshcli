@@ -333,6 +333,7 @@ func (m main_model) Init() tea.Cmd {
 }
 
 func main_ui(items []string, message string, isSshContextMenu bool) (string, error) {
+
 	var p *tea.Program
 
 	var secureItems []string
