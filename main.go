@@ -1337,6 +1337,10 @@ func (s *AllConfigs) moveToFolder(host string) error {
 		FolderList = append(FolderList, v)
 	}
 
+	slices.Sort(FolderList)
+
+	FolderList = slices.Compact(FolderList)
+
 	FolderList = append(FolderList, "New Folder")
 	FolderList = append(FolderList, "Rename Folder")
 	FolderList = append(FolderList, "Remove from folder")
