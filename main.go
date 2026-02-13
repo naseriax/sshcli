@@ -2279,8 +2279,6 @@ func (s *AllConfigs) Connect(chosen string) error {
 				}
 				if len(h.Password) > 0 {
 					cmd = *exec.Command("sshpass", "-p", h.Password, "ssh-copy-id", "-i", h.IdentityFile, "-p", h.Port, h.User+"@"+h.HostName)
-				} else {
-					fmt.Printf("There is no password stored for this profile\n")
 				}
 			}
 
@@ -2375,8 +2373,6 @@ func (s *AllConfigs) Connect(chosen string) error {
 				}
 				if len(h.Password) > 0 {
 					cmd = *exec.Command("sshpass", "-p", h.Password, strings.ToLower(command), "-o", "StrictHostKeyChecking=no", hostName)
-				} else {
-					fmt.Printf("There is no password stored for this profile\n")
 				}
 			}
 
