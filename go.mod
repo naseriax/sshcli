@@ -1,4 +1,4 @@
-module github.com/naseriax/sshah
+module github.com/naseriax/sshcli
 
 go 1.26.0
 

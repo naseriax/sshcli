@@ -23,7 +23,6 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/charmbracelet/x/term"
 	_ "modernc.org/sqlite"
@@ -553,12 +552,12 @@ func fixKeyPath(keyPath string) string {
 	return keyPath
 }
 
-func timer(name string) func() {
-	start := time.Now()
-	return func() {
-		fmt.Printf("%s took %v\n", name, time.Since(start))
-	}
-}
+// func timer(name string) func() {
+// 	start := time.Now()
+// 	return func() {
+// 		fmt.Printf("%s took %v\n", name, time.Since(start))
+// 	}
+// }
 
 func cleanTheString(s, mode string) string {
 
@@ -1942,7 +1941,7 @@ func (s *AllConfigs) editProfile(profileName, mode string) error {
 
 			// This means it's the Host name has changed, so we need decide if we need overwrite the old one or create a new one with the new name.
 			whatToDo := "new"
-			items := []string{"Overwrite Host", fmt.Sprintf("Save and duplicate as %s%s%s", green, newHost.Host, reset)}
+			items := []string{fmt.Sprintf("Save and duplicate as %s%s%s", green, newHost.Host, reset),"Overwrite Host"}
 
 			// If it's not a new profile creation (NEW SSH PROFILE in the menu)
 			if mode != "new" {
@@ -2226,6 +2225,19 @@ func (s *AllConfigs) Connect(chosen string) error {
 				return fmt.Errorf("failed to push the passphrase to db for host %v:%v", hostName, err)
 			}
 		} else if strings.EqualFold(command, "ping") {
+
+			// if runtime.GOOS != "windows" {
+			// 	shellPath := filepath.Base(os.Getenv("SHELL"))
+			// 	if shellPath == "zsh" {
+			// 		fmt.Println("d")
+			// 		cmd_record := *exec.Command("zsh", "-c", fmt.Sprintf("echo '%s %s' >> ~/.zsh_history", strings.ToLower(command), h.HostName))
+			// 		cmd_record.Stdin = os.Stdin
+			// 		cmd_record.Stdout = os.Stdout
+			// 		cmd_record.Stderr = os.Stderr
+			// 		cmd_record.Run()
+			// 	}
+			// }
+
 			cmd := *exec.Command(strings.ToLower(command), h.HostName)
 			cmd.Stdin = os.Stdin
 			cmd.Stdout = os.Stdout
