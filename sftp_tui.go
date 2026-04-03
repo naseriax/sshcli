@@ -664,8 +664,16 @@ func INIT_SFTP(hostId, host, user, password, port, key, passphrase string) error
 	defer sftpClient.Close()
 
 	app := tview.NewApplication()
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		homeDir = "/"
+	}
+
 	localFS := NewFileSystem(false, nil, nil)
 	remoteFS := NewFileSystem(true, sftpClient, sshClient)
+
+	localFS.navigateTo(homeDir)
 
 	flex := tview.NewFlex().
 		AddItem(localFS.list, 0, 1, true).
