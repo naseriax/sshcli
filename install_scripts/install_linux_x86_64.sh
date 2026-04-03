@@ -1,4 +1,4 @@
-GITLAB_URL="https://github.com/naseriax/sshcli/releases/download/20260403.1138/sshcli_linux_x86_64"
+GITLAB_URL="https://github.com/naseriax/sshcli/releases/download/20260403.1145/sshcli_linux_x86_64"
 DEST_DIR="$HOME/sshcli"
 NEW_NAME="sshcli"
 echo "Starting download of the sshcli executable for Linux (AMD64)..."
@@ -16,8 +16,14 @@ echo "$FINAL_PATH"
 echo "Setting executable permissions..."
 chmod +x "$FINAL_PATH"
 echo "Adding sshcli to PATH"
-echo "# Below line was added by sshcli" >> ~/.bashrc
-echo 'export PATH="$HOME/sshcli:$PATH"' >> ~/.bashrc
+LINE_TO_ADD='export PATH="$HOME/sshcli:$PATH"'
+FILE="$HOME/.bashrc"
+
+if ! grep -Fxq "$LINE_TO_ADD" "$FILE"; then
+    echo -e "\n# Below line was added by sshcli" >> "$FILE"
+    echo "$LINE_TO_ADD" >> "$FILE"
+fi
+
 echo ""
 echo "🎉 Success! sshcli has been installed."
 echo ""

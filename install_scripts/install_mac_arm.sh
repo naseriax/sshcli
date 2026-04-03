@@ -1,4 +1,4 @@
-GITLAB_URL="https://github.com/naseriax/sshcli/releases/download/20260403.1138/sshcli_mac_arm64"
+GITLAB_URL="https://github.com/naseriax/sshcli/releases/download/20260403.1145/sshcli_mac_arm64"
 DEST_DIR="$HOME/sshcli"
 NEW_NAME="sshcli"
 echo "Starting download of the sshcli executable for macOS (ARM64)..."
@@ -16,8 +16,15 @@ echo "$FINAL_PATH"
 echo "Setting executable permissions..."
 chmod +x "$FINAL_PATH"
 echo "Adding sshcli to PATH"
-echo "# Below line was added by sshcli" >> ~/.zshrc
-echo 'export PATH="$HOME/sshcli:$PATH"' >> ~/.zshrc
+
+LINE_TO_ADD='export PATH="$HOME/sshcli:$PATH"'
+FILE="$HOME/.zshrc"
+
+if ! grep -Fxq "$LINE_TO_ADD" "$FILE"; then
+    echo -e "\n# Below line was added by sshcli" >> "$FILE"
+    echo "$LINE_TO_ADD" >> "$FILE"
+fi
+
 echo ""
 echo "🎉 Success! sshcli has been installed."
 echo ""
