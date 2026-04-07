@@ -1905,7 +1905,7 @@ func (s *AllConfigs) editProfile(profileName, mode string) error {
 		//config is the sshconfig before modification
 
 		if newHost.Host == config.Host && mode != "new" {
-			// This means it's modification of an existing profile. (Host name is not changed)
+			// This means it's a modification of an existing profile. (Host name is not changed)
 			fmt.Printf("The profile %s has been altered!\n", profileName)
 			fmt.Println("- Details:")
 			if !slices.Equal(config.Sockets, newHost.Sockets) {
@@ -1941,7 +1941,7 @@ func (s *AllConfigs) editProfile(profileName, mode string) error {
 
 			// This means it's the Host name has changed, so we need decide if we need overwrite the old one or create a new one with the new name.
 			whatToDo := "new"
-			items := []string{fmt.Sprintf("Save and duplicate as %s%s%s", green, newHost.Host, reset),"Overwrite Host"}
+			items := []string{fmt.Sprintf("Save and duplicate as %s%s%s", green, newHost.Host, reset), "Overwrite Host"}
 
 			// If it's not a new profile creation (NEW SSH PROFILE in the menu)
 			if mode != "new" {
@@ -1966,7 +1966,7 @@ func (s *AllConfigs) editProfile(profileName, mode string) error {
 				}
 			}
 			// If Overwrite is chosen by the user
-			if whatToDo == items[0] {
+			if whatToDo == items[1] {
 				if err := s.updateHostNameInDatabase(config.Host, newHost.Host); err != nil {
 					return fmt.Errorf("failed to change the host column from %s to %s: %w", config.Host, newHost.Host, err)
 				}
