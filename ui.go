@@ -196,7 +196,7 @@ func (m *baseModel) updateBase(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			case tea.KeyRunes:
-				if len(msg.Runes) == 1 && (unicode.IsLetter(msg.Runes[0]) || unicode.IsDigit(msg.Runes[0])) {
+				if len(msg.Runes) == 1 && (unicode.IsLetter(msg.Runes[0]) || unicode.IsDigit(msg.Runes[0]) || msg.Runes[0] == '.' || msg.Runes[0] == '-') {
 					m.searchQuery += string(msg.Runes)
 					m.filterChoices()
 					if m.cursor >= len(m.choices) {
