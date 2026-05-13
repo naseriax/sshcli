@@ -66,14 +66,13 @@ func isReachable(h SSHConfig) bool {
 				spinnerDone <- true
 				return
 			case <-ticker.C:
-				fmt.Printf("\r%s Waiting for %s:%s to become reachable...", frames[frameIdx%len(frames)], h.HostName, port)
+				fmt.Printf("\r%s Waiting for %s:%s", frames[frameIdx%len(frames)], h.HostName, port)
 				frameIdx++
 			}
 		}
 	}()
 
-	// Poll for connectivity every 2 seconds
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
@@ -90,7 +89,7 @@ func isReachable(h SSHConfig) bool {
 				port = ""
 				extraArg = ""
 			}
-			cmd := exec.CommandContext(ctx, meth, h.HostName, port, "-c", "1", extraArg)
+			cmd := exec.CommandContext(ctx, meth, h.HostName, port, "-c", "1", "-i", "0.1", extraArg)
 			output, _ := cmd.CombinedOutput()
 			cmd.Run()
 			if strings.Contains(string(output), "successful probes:   1") {
@@ -2357,6 +2356,12 @@ func (s *AllConfigs) Connect(chosen string) error {
 
 			h.IdentityFile = fixKeyPath(h.IdentityFile)
 
+			if checkReach {
+				if !isReachable(*h) {
+					return fmt.Errorf(h.HostName, "is not reachable")
+				}
+			}
+
 			cmd := *exec.Command("ssh-copy-id", "-i", h.IdentityFile, "-p", h.Port, h.User+"@"+h.HostName)
 			if passAuthSupported {
 				if len(h.sshkey_passphrase) > 0 {
@@ -2384,9 +2389,16 @@ func (s *AllConfigs) Connect(chosen string) error {
 			if h.Port == "" {
 				h.Port = "22"
 			}
+
 			if strings.HasPrefix(h.IdentityFile, "~") {
 				homeDir, _ := os.UserHomeDir()
 				h.IdentityFile = strings.ReplaceAll(h.IdentityFile, "~", homeDir)
+			}
+
+			if checkReach {
+				if !isReachable(*h) {
+					return fmt.Errorf(h.HostName, "is not reachable")
+				}
 			}
 
 			err = INIT_SFTP(h.Host, h.HostName, h.User, h.Password, h.Port, h.IdentityFile, h.sshkey_passphrase)
