@@ -38,6 +38,7 @@ var (
 	db                *sql.DB
 	legend            string = "🔑: password, 🌐: url, 📡: http proxy, 🚇: ssh tunnel, 🖍️ : note, 🧦:DynamicForward via Socks5, 🔐:  sshkey passphrase"
 	isSecure          bool
+	checkReach        bool
 	msg               = "Legend:\n" + legend + "\n\n"
 	port              = "22"
 )

@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"flag"
@@ -23,10 +24,85 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/charmbracelet/x/term"
 	_ "modernc.org/sqlite"
 )
+
+func isReachable(h SSHConfig) bool {
+	meth := "tcping"
+	extraArg := "--no-color"
+	port := h.Port
+	if port == "" {
+		port = "22"
+	}
+
+	// Check if tcping is available
+	if err := checkShellCommands(meth); err != nil {
+		fmt.Println("tcping is not installed. Install from https://github.com/pouriyajamshidi/tcping")
+		fmt.Println("falling back to icmp")
+		meth = "ping"
+	}
+
+	// Create a context with cancellation for potential timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
+	defer cancel()
+
+	// Start the spinner in a separate goroutine
+	stopSpinner := make(chan bool, 1)
+	spinnerDone := make(chan bool, 1)
+
+	go func() {
+		frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+		frameIdx := 0
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-stopSpinner:
+				fmt.Printf("\r%-50s\r", " ") // Clear the spinner line
+				spinnerDone <- true
+				return
+			case <-ticker.C:
+				fmt.Printf("\r%s Waiting for %s:%s to become reachable...", frames[frameIdx%len(frames)], h.HostName, port)
+				frameIdx++
+			}
+		}
+	}()
+
+	// Poll for connectivity every 2 seconds
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			stopSpinner <- true
+			<-spinnerDone
+			fmt.Printf("timeout waiting for %s:%s to become reachable\n", h.HostName, port)
+			return false
+
+		case <-ticker.C:
+			// Test connectivity with tcping
+			if meth == "ping" {
+				port = ""
+				extraArg = ""
+			}
+			cmd := exec.CommandContext(ctx, meth, h.HostName, port, "-c", "1", extraArg)
+			output, _ := cmd.CombinedOutput()
+			cmd.Run()
+			if strings.Contains(string(output), "successful probes:   1") {
+				stopSpinner <- true
+				<-spinnerDone
+				fmt.Println()
+				fmt.Printf("✓ %s:%s is reachable!\n\n", h.HostName, port)
+				return true
+			}
+		}
+	}
+}
 
 // initDB opens a connection to the SQLite database and ensures all necessary
 // It's designed to be idempotent.
@@ -666,6 +742,7 @@ func processCliArgs() (ConsoleConfig, *string) {
 	version := flag.Bool("version", false, "prints the compile time (version)")
 	sanitizeDB := flag.Bool("cleanup", false, "delete sqlite records that are not in the ssh config file")
 	secure := flag.Bool("secure", false, "Masks the sensitive data")
+	waitForReach := flag.Bool("check-reachability", false, "Check for the reachability before initiating the connection")
 	sql := flag.Bool("sql", false, "Direct access to the sshcli.db file to run sql queries")
 
 	flag.Parse()
@@ -696,6 +773,10 @@ func processCliArgs() (ConsoleConfig, *string) {
 
 	if *secure {
 		isSecure = true
+	}
+
+	if *waitForReach {
+		checkReach = true
 	}
 
 	var consoleProfile ConsoleConfig
@@ -2353,6 +2434,12 @@ func (s *AllConfigs) Connect(chosen string) error {
 
 			if err := checkShellCommands(strings.ToLower(command)); err != nil {
 				return fmt.Errorf("command not found: %w", err)
+			}
+
+			if checkReach {
+				if !isReachable(*h) {
+					return fmt.Errorf(h.HostName, "is not reachable")
+				}
 			}
 
 			cmd := *exec.Command(strings.ToLower(command), hostName)
