@@ -49,10 +49,8 @@ func isReachable(h SSHConfig) bool {
 		fmt.Println("tcping is not installed. Install from https://github.com/pouriyajamshidi/tcping")
 		fmt.Println("falling back to icmp")
 		meth = "ping"
-		port = ""
 	}
 
-	// Create a context with cancellation for potential timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
 	defer cancel()
 
@@ -73,9 +71,11 @@ func isReachable(h SSHConfig) bool {
 				spinnerDone <- true
 				return
 			case <-ticker.C:
-				fmt.Printf("\r%s Waiting for %s:%s", frames[frameIdx%len(frames)], h.HostName, port)
+
 				if meth == "ping" {
 					fmt.Printf("\r%s Waiting for %s", frames[frameIdx%len(frames)], h.HostName)
+				} else {
+					fmt.Printf("\r%s Waiting for %s:%s", frames[frameIdx%len(frames)], h.HostName, port)
 				}
 				frameIdx++
 			}
@@ -94,19 +94,22 @@ func isReachable(h SSHConfig) bool {
 			return false
 
 		case <-ticker.C:
-			// Test connectivity with tcping
-			if meth == "ping" {
-				port = ""
-				extraArg = ""
-			}
 			cmd := exec.CommandContext(ctx, meth, h.HostName, port, "-c", "1", "-i", "0.1", extraArg)
+			if meth == "ping" {
+				cmd = exec.CommandContext(ctx, meth, h.HostName, "-c", "1", "-i", "0.1")
+			}
 			output, _ := cmd.CombinedOutput()
 			cmd.Run()
 			if strings.Contains(string(output), "successful probes:   1") || strings.Contains(string(output), `0% packet loss`) {
 				stopSpinner <- true
 				<-spinnerDone
 				fmt.Println()
-				fmt.Printf("✓ %s:%s is reachable!\n\n", h.HostName, port)
+				if meth == "ping" {
+					fmt.Printf("✓ %s is reachable!\n\n", h.HostName)
+				} else {
+					fmt.Printf("✓ %s:%s is reachable!\n\n", h.HostName, port)
+				}
+
 				return true
 			}
 		}
