@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 	"unicode"
@@ -36,6 +38,32 @@ func getSubMenuContent() []string {
 		fmt.Sprintf("%s(R)%s Remove Profile", yellow, reset),
 		goback,
 	}
+}
+
+// Check for updates from GitHub
+func checkForUpdates() bool {
+	resp, err := http.Get("https://api.github.com/repos/naseriax/sshcli/releases/latest")
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+
+	var release struct {
+		TagName string `json:"tag_name"`
+	}
+
+	err = json.NewDecoder(resp.Body).Decode(&release)
+	if err != nil {
+		return false
+	}
+
+	// Compare tag_name with CompileTime[1:]
+	// tag_name format: v1.2.3, CompileTime[1:] format: YYYYMMDD.HHMMSS
+	return release.TagName > CompileTime[1:]
 }
 
 // Common filter function
@@ -278,11 +306,11 @@ func (m *baseModel) viewBase() string {
 
 	var s strings.Builder
 	if m.isSSHContext {
-		s.WriteString(fmt.Sprintf("\n%sPress shortcut key, / to search, arrows+Enter to select, or q to quit.%s\n\n", yellow, reset))
+		fmt.Fprintf(&s, "\n%sPress shortcut key, / to search, arrows+Enter to select, or q to quit.%s\n\n", yellow, reset)
 	}
 
 	if m.inSearchMode {
-		s.WriteString(fmt.Sprintf("Search mode: %s\n\n", m.searchQuery))
+		fmt.Fprintf(&s, "Search mode: %s\n\n", m.searchQuery)
 	} else if !m.isSSHContext {
 		s.WriteString(m.message)
 	}
@@ -295,12 +323,15 @@ func (m *baseModel) viewBase() string {
 			if m.cursor == i {
 				cursor = fmt.Sprintf(" %s>%s", green, reset)
 			}
-			s.WriteString(fmt.Sprintf("%s %s\n", cursor, choice))
+			fmt.Fprintf(&s, "%s %s\n", cursor, choice)
 		}
 	}
 
 	if !m.isSSHContext {
-		s.WriteString(fmt.Sprintf("\n%sPress shortcut key, / to search, arrows+Enter to select, or q to quit.%s\n", yellow, reset))
+		fmt.Fprintf(&s, "\n%sPress shortcut key, / to search, arrows+Enter to select, or q to quit.%s\n", yellow, reset)
+		if m.updateAvailable {
+			fmt.Fprintf(&s, "%s%s UPDATE AVAILABLE%s\n", green, BOLD, reset)
+		}
 	}
 
 	return s.String()
@@ -378,28 +409,33 @@ func main_ui(items []string, message string, isSshContextMenu bool) (string, err
 			},
 		}, tea.WithAltScreen(), tea.WithMouseAllMotion())
 	} else {
-
+		var bm baseModel
 		if isSecure {
-			p = tea.NewProgram(main_model{
-				baseModel: baseModel{
-					allChoices:   secureItems,
-					choices:      secureItems,
-					selected:     make(map[int]string),
-					message:      message,
-					isSSHContext: false,
-				},
-			}, tea.WithAltScreen(), tea.WithMouseAllMotion())
+			bm = baseModel{
+				allChoices:   secureItems,
+				choices:      secureItems,
+				selected:     make(map[int]string),
+				message:      message,
+				isSSHContext: false,
+			}
 		} else {
-			p = tea.NewProgram(main_model{
-				baseModel: baseModel{
-					allChoices:   items,
-					choices:      items,
-					selected:     make(map[int]string),
-					message:      message,
-					isSSHContext: false,
-				},
-			}, tea.WithAltScreen(), tea.WithMouseAllMotion())
+			bm = baseModel{
+				allChoices:   items,
+				choices:      items,
+				selected:     make(map[int]string),
+				message:      message,
+				isSSHContext: false,
+			}
 		}
+
+		// Check for updates in a goroutine (only once)
+		go func() {
+			if checkForUpdates() {
+				bm.updateAvailable = true
+			}
+		}()
+
+		p = tea.NewProgram(main_model{baseModel: bm}, tea.WithAltScreen(), tea.WithMouseAllMotion())
 	}
 
 	finalModel, err := p.Run()

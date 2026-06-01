@@ -80,6 +80,7 @@ type (
 		inSearchMode bool
 		isSSHContext bool
 		lastClick    time.Time
+		updateAvailable bool
 	}
 	main_model struct {
 		baseModel

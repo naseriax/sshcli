@@ -114,7 +114,7 @@ func isReachable(h SSHConfig) bool {
 				} else {
 					fmt.Printf("✓ %s:%s is reachable!\n\n", h.HostName, port)
 				}
-				fmt.Printf("%sit took %s%.3f %sseconds%s\n", green, blue, elapsed.Seconds(), green, reset)
+				fmt.Printf("%sIt took %s%.3f %sseconds%s\n", green, blue, elapsed.Seconds(), green, reset)
 
 				return true
 			}
