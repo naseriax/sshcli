@@ -2812,3 +2812,5 @@ func main() {
 		}
 	}
 }
+
+//codesign --force --deep --sign - ./sshcli
