@@ -331,6 +331,8 @@ func (m *baseModel) viewBase() string {
 		fmt.Fprintf(&s, "\n%sPress shortcut key, / to search, arrows+Enter to select, or q to quit.%s\n", yellow, reset)
 		if m.updateAvailable {
 			fmt.Fprintf(&s, "%s%s UPDATE AVAILABLE%s\n", green, BOLD, reset)
+		} else {
+			fmt.Fprintf(&s, "%s%s Up-to-date!%s\n", green, BOLD, reset)
 		}
 	}
 
