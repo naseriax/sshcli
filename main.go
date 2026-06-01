@@ -38,6 +38,7 @@ func isReachable(h SSHConfig) bool {
 		}
 	}
 	meth := "tcping"
+	reachC := "successful probes:   1"
 	extraArg := "--no-color"
 	port := h.Port
 	if port == "" {
@@ -49,6 +50,7 @@ func isReachable(h SSHConfig) bool {
 		fmt.Println("tcping is not installed. Install from https://github.com/pouriyajamshidi/tcping")
 		fmt.Println("falling back to icmp")
 		meth = "ping"
+		reachC = `0% packet loss`
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
@@ -57,6 +59,7 @@ func isReachable(h SSHConfig) bool {
 	// Start the spinner in a separate goroutine
 	stopSpinner := make(chan bool, 1)
 	spinnerDone := make(chan bool, 1)
+	start := time.Now()
 
 	go func() {
 		frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
@@ -77,6 +80,7 @@ func isReachable(h SSHConfig) bool {
 				} else {
 					fmt.Printf("\r%s Waiting for %s:%s", frames[frameIdx%len(frames)], h.HostName, port)
 				}
+
 				frameIdx++
 			}
 		}
@@ -100,7 +104,8 @@ func isReachable(h SSHConfig) bool {
 			}
 			output, _ := cmd.CombinedOutput()
 			cmd.Run()
-			if strings.Contains(string(output), "successful probes:   1") || strings.Contains(string(output), `0% packet loss`) {
+			if strings.Contains(strings.ToLower(string(output)), strings.ToLower(reachC)) {
+				elapsed := time.Since(start)
 				stopSpinner <- true
 				<-spinnerDone
 				fmt.Println()
@@ -109,6 +114,7 @@ func isReachable(h SSHConfig) bool {
 				} else {
 					fmt.Printf("✓ %s:%s is reachable!\n\n", h.HostName, port)
 				}
+				fmt.Printf("%sit took %s%.3f %sseconds%s\n", green, blue, elapsed.Seconds(), green, reset)
 
 				return true
 			}
