@@ -1,9 +1,7 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 	"unicode"
@@ -40,31 +38,55 @@ func getSubMenuContent() []string {
 	}
 }
 
-// Check for updates from GitHub
-func checkForUpdates() bool {
-	resp, err := http.Get("https://api.github.com/repos/naseriax/sshcli/releases/latest")
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
+// Message type for update check completion
+// type updateCheckMsg struct {
+// 	latestVersion   string
+// 	updateAvailable bool
+// }
 
-	if resp.StatusCode != http.StatusOK {
-		return false
-	}
+// Check for updates from GitHub - returns latest version and availability
+// func checkForUpdates() (string, bool) {
+// 	resp, err := http.Get("https://api.github.com/repos/naseriax/sshcli/releases/latest")
+// 	if err != nil {
+// 		return "", false
+// 	}
+// 	defer resp.Body.Close()
 
-	var release struct {
-		TagName string `json:"tag_name"`
-	}
+// 	if resp.StatusCode != http.StatusOK {
+// 		return "", false
+// 	}
 
-	err = json.NewDecoder(resp.Body).Decode(&release)
-	if err != nil {
-		return false
-	}
+// 	var release struct {
+// 		TagName string `json:"tag_name"`
+// 	}
 
-	// Compare tag_name with CompileTime[1:]
-	// tag_name format: v1.2.3, CompileTime[1:] format: YYYYMMDD.HHMMSS
-	return release.TagName > CompileTime[1:]
-}
+// 	err = json.NewDecoder(resp.Body).Decode(&release)
+// 	if err != nil {
+// 		return "", false
+// 	}
+
+// 	// Compare versions - strip prefixes for proper comparison
+// 	// tag_name format: v1.2.3 (strip 'v' prefix)
+// 	// CompileTime format: .YYYYMMDD.HHMMSS (strip '.' prefix)
+// 	latestVer := strings.TrimPrefix(release.TagName, "v")
+// 	currentVer := CompileTime
+// 	if len(currentVer) > 0 && currentVer[0] == '.' {
+// 		currentVer = currentVer[1:]
+// 	}
+
+// 	return release.TagName, latestVer > currentVer
+// }
+
+// Command that performs the update check
+// func checkUpdateCmd() tea.Cmd {
+// 	return func() tea.Msg {
+// 		latest, available := checkForUpdates()
+// 		return updateCheckMsg{
+// 			latestVersion:   latest,
+// 			updateAvailable: available,
+// 		}
+// 	}
+// }
 
 // Common filter function
 func (m *baseModel) filterChoices() {
@@ -143,6 +165,14 @@ func (m *baseModel) handleProfileShortcuts(key string) (tea.Model, tea.Cmd) {
 // Common update logic
 func (m *baseModel) updateBase(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	// case updateCheckMsg:
+	// 	m.latestVersion = msg.latestVersion
+	// 	m.updateAvailable = msg.updateAvailable
+	// 	m.checkingUpdate = false
+	// 	if m.isSSHContext {
+	// 		return ssh_model{*m}, nil
+	// 	}
+	// 	return main_model{*m}, nil
 	case tea.KeyMsg:
 		switch msg.String() {
 
@@ -329,11 +359,24 @@ func (m *baseModel) viewBase() string {
 
 	if !m.isSSHContext {
 		fmt.Fprintf(&s, "\n%sPress shortcut key, / to search, arrows+Enter to select, or q to quit.%s\n", yellow, reset)
-		if m.updateAvailable {
-			fmt.Fprintf(&s, "%s%s UPDATE AVAILABLE%s\n", green, BOLD, reset)
-		} else {
-			fmt.Fprintf(&s, "%s%s Up-to-date!%s\n", green, BOLD, reset)
-		}
+
+		// // Display update status
+		// if m.checkingUpdate {
+		// 	// Show spinner while checking for updates
+		// 	frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+		// 	frame := frames[int(time.Now().UnixNano()/100000000)%len(frames)]
+		// 	fmt.Fprintf(&s, "\n%s%s Checking for updates...%s\n", blue, frame, reset)
+		// } else if m.latestVersion != "" {
+		// 	// Show version information
+		// 	fmt.Fprintf(&s, "\n%sVersion Information:%s\n", blue, reset)
+		// 	fmt.Fprintf(&s, "  Current: %s\n", m.currentVersion)
+		// 	fmt.Fprintf(&s, "  Latest:  %s\n", m.latestVersion)
+		// 	if m.updateAvailable {
+		// 		fmt.Fprintf(&s, "  Status:  %s%s UPDATE AVAILABLE%s\n", green, BOLD, reset)
+		// 	} else {
+		// 		fmt.Fprintf(&s, "  Status:  %sUp to date%s\n", green, reset)
+		// 	}
+		// }
 	}
 
 	return s.String()
@@ -362,6 +405,9 @@ func (m ssh_model) Init() tea.Cmd {
 }
 
 func (m main_model) Init() tea.Cmd {
+	// if m.checkingUpdate {
+	// return checkUpdateCmd()
+	// }
 	return nil
 }
 
@@ -411,31 +457,25 @@ func main_ui(items []string, message string, isSshContextMenu bool) (string, err
 			},
 		}, tea.WithAltScreen(), tea.WithMouseAllMotion())
 	} else {
-		var bm baseModel
-		if isSecure {
-			bm = baseModel{
-				allChoices:   secureItems,
-				choices:      secureItems,
-				selected:     make(map[int]string),
-				message:      message,
-				isSSHContext: false,
-			}
-		} else {
-			bm = baseModel{
-				allChoices:   items,
-				choices:      items,
-				selected:     make(map[int]string),
-				message:      message,
-				isSSHContext: false,
-			}
+		currentVer := CompileTime
+		if len(currentVer) > 0 && currentVer[0] == '.' {
+			currentVer = currentVer[1:]
 		}
 
-		// Check for updates in a goroutine (only once)
-		go func() {
-			if checkForUpdates() {
-				bm.updateAvailable = true
-			}
-		}()
+		itemList := items
+		if isSecure {
+			itemList = secureItems
+		}
+
+		bm := baseModel{
+			allChoices:   itemList,
+			choices:      itemList,
+			selected:     make(map[int]string),
+			message:      message,
+			isSSHContext: false,
+			// checkingUpdate: true,
+			currentVersion: currentVer,
+		}
 
 		p = tea.NewProgram(main_model{baseModel: bm}, tea.WithAltScreen(), tea.WithMouseAllMotion())
 	}

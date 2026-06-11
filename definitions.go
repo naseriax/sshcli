@@ -70,17 +70,20 @@ type (
 		OtherAttribs      []string
 	}
 	baseModel struct {
-		allChoices   []string
-		choices      []string
-		selected     map[int]string
-		cursor       int
-		choice       string
-		searchQuery  string
-		message      string
-		inSearchMode bool
-		isSSHContext bool
-		lastClick    time.Time
+		allChoices      []string
+		choices         []string
+		selected        map[int]string
+		cursor          int
+		choice          string
+		searchQuery     string
+		message         string
+		inSearchMode    bool
+		isSSHContext    bool
+		lastClick       time.Time
 		updateAvailable bool
+		checkingUpdate  bool
+		latestVersion   string
+		currentVersion  string
 	}
 	main_model struct {
 		baseModel
