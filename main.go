@@ -31,12 +31,19 @@ import (
 )
 
 func isReachable(h SSHConfig) bool {
-	for _, attrib := range h.OtherAttribs {
-		if strings.Contains(attrib, "ProxyJump") {
-			fmt.Println("Checking the reachability is not supported for ProxyJump configured profiles in the current release.")
-			return true
+
+	if len(h.Proxy) > 0 {
+		fmt.Println("Checking the reachability is not supported on ProxyJump or ProxyCommand configured profiles in the current release.")
+		return true
+	} else {
+		for _, attrib := range h.OtherAttribs {
+			if strings.Contains(attrib, "ProxyJump") {
+				fmt.Println("Checking the reachability is not supported on ProxyJump or ProxyCommand configured profiles in the current release.")
+				return true
+			}
 		}
 	}
+
 	meth := "tcping"
 	reachC := "successful probes:   1"
 	extraArg := "--no-color"
