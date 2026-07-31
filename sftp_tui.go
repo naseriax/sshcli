@@ -654,6 +654,9 @@ func createStatusBar(localFS, remoteFS *FileSystem) *tview.TextView {
 }
 
 func INIT_SFTP(hostId, host, user, password, port, key, passphrase string) error {
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
 	sftpClient, sshClient, err := opentheGates(host+":"+port, user, key, password, passphrase)
 	if err != nil {
 		log.Printf("Failed to create SFTP client: %v\n", err)
