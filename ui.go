@@ -93,17 +93,70 @@ func (m *baseModel) filterChoices() {
 	if m.searchQuery == "" || !m.inSearchMode {
 		m.choices = make([]string, len(m.allChoices))
 		copy(m.choices, m.allChoices)
+	} else {
+		m.choices = nil
+		query := strings.ToLower(m.searchQuery)
+		for _, choice := range m.allChoices {
+			cleanChoice := strings.ReplaceAll(strings.ReplaceAll(choice, yellow, ""), reset, "")
+			if strings.Contains(strings.ToLower(cleanChoice), query) {
+				m.choices = append(m.choices, choice)
+			}
+		}
+	}
+
+	if m.cursor >= len(m.choices) {
+		m.cursor = max(0, len(m.choices)-1)
+	}
+	m.refreshVisibleWindow()
+}
+
+func (m *baseModel) refreshVisibleWindow() {
+	if len(m.choices) == 0 {
+		m.visibleStart = 0
+		m.visibleCount = 0
 		return
 	}
 
-	m.choices = nil
-	query := strings.ToLower(m.searchQuery)
-	for _, choice := range m.allChoices {
-		cleanChoice := strings.ReplaceAll(strings.ReplaceAll(choice, yellow, ""), reset, "")
-		if strings.Contains(strings.ToLower(cleanChoice), query) {
-			m.choices = append(m.choices, choice)
-		}
+	if m.windowHeight <= 0 {
+		m.windowHeight = 24
 	}
+
+	reservedLines := 5
+	if m.inSearchMode {
+		reservedLines += 2
+	}
+	if m.message != "" {
+		reservedLines += len(strings.Split(m.message, "\n"))
+	}
+	if !m.isSSHContext {
+		reservedLines += 2
+	}
+
+	availableLines := m.windowHeight - reservedLines
+	if availableLines < 3 {
+		availableLines = 3
+	}
+	if availableLines > len(m.choices) {
+		availableLines = len(m.choices)
+	}
+
+	if m.cursor < m.visibleStart {
+		m.visibleStart = m.cursor
+	} else if m.cursor >= m.visibleStart+availableLines {
+		m.visibleStart = m.cursor - availableLines + 1
+	}
+
+	if m.visibleStart < 0 {
+		m.visibleStart = 0
+	}
+	if m.visibleStart+availableLines > len(m.choices) {
+		m.visibleStart = len(m.choices) - availableLines
+	}
+	if m.visibleStart < 0 {
+		m.visibleStart = 0
+	}
+
+	m.visibleCount = availableLines
 }
 
 // SSH shortcut handlers
@@ -173,6 +226,15 @@ func (m *baseModel) updateBase(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// 		return ssh_model{*m}, nil
 	// 	}
 	// 	return main_model{*m}, nil
+	case tea.WindowSizeMsg:
+		m.windowWidth = msg.Width
+		m.windowHeight = msg.Height
+		m.refreshVisibleWindow()
+		if m.isSSHContext {
+			return ssh_model{*m}, nil
+		}
+		return main_model{*m}, nil
+
 	case tea.KeyMsg:
 		switch msg.String() {
 
@@ -223,11 +285,13 @@ func (m *baseModel) updateBase(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "up":
 			if m.cursor > 0 {
 				m.cursor--
+				m.refreshVisibleWindow()
 			}
 
 		case "down":
 			if m.cursor < len(m.choices)-1 {
 				m.cursor++
+				m.refreshVisibleWindow()
 			}
 
 		case "enter", " ":
@@ -348,12 +412,24 @@ func (m *baseModel) viewBase() string {
 	if len(m.choices) == 0 {
 		s.WriteString("No matches found.\n")
 	} else {
-		for i, choice := range m.choices {
+		start := m.visibleStart
+		end := start + m.visibleCount
+		if end > len(m.choices) {
+			end = len(m.choices)
+		}
+		if start > 0 {
+			fmt.Fprintf(&s, "… more above\n")
+		}
+		for i := start; i < end; i++ {
+			choice := m.choices[i]
 			cursor := " "
 			if m.cursor == i {
 				cursor = fmt.Sprintf(" %s>%s", green, reset)
 			}
 			fmt.Fprintf(&s, "%s %s\n", cursor, choice)
+		}
+		if end < len(m.choices) {
+			fmt.Fprintf(&s, "… more below\n")
 		}
 	}
 

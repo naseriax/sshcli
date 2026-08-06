@@ -79,6 +79,10 @@ type (
 		message         string
 		inSearchMode    bool
 		isSSHContext    bool
+		windowWidth     int
+		windowHeight    int
+		visibleStart    int
+		visibleCount    int
 		lastClick       time.Time
 		updateAvailable bool
 		checkingUpdate  bool
